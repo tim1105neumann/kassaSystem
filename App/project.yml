@@ -1,0 +1,66 @@
+name: Kassa
+
+options:
+  bundleIdPrefix: at.heuriger
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.0"
+
+packages:
+  KassaShared:
+    path: ../Shared
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  Kassa:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: KassaShared
+        product: KassaShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: at.heuriger.kassa
+        PRODUCT_NAME: Kassa
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "1.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Kassa
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        DEVELOPMENT_ASSET_PATHS: ""
+        CODE_SIGN_STYLE: Automatic
+
+  KassaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Kassa
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: at.heuriger.kassa.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Kassa:
+    build:
+      targets:
+        Kassa: all
+    test:
+      targets:
+        - KassaTests
+      gatherCoverageData: false
+    run:
+      config: Debug

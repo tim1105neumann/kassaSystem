@@ -1,0 +1,20 @@
+# Build-Artefakte
+.build/
+DerivedData/
+.swiftpm/
+
+# Das Xcode-Projekt wird aus App/project.yml generiert (xcodegen generate)
+*.xcodeproj/
+
+# Laufzeitdaten
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+backups/
+
+# Geheimnisse
+.env
+*.p12
+*.mobileprovision
+
+.DS_Store

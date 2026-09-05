@@ -1,0 +1,44 @@
+# Reverse Proxy fuer das Kassasystem.
+# DOMAIN und ACME_EMAIL kommen aus der Datei .env (via docker-compose.yml).
+# Nach jeder Aenderung:  docker compose restart caddy
+{
+	# Kontaktadresse fuer Let's Encrypt (Ablaufwarnungen).
+	email {$ACME_EMAIL}
+
+	# Nur zum Testen einschalten: Let's Encrypt hat ein enges Limit an
+	# fehlgeschlagenen Versuchen pro Woche. Die Staging-Zertifikate sind
+	# im Browser/iPhone ungueltig, aber man sieht, ob der Ablauf klappt.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	# Zertifikat wird beim ersten Start automatisch geholt und danach
+	# selbststaendig erneuert. Es ist nichts einzurichten.
+
+	header {
+		# Browser/Clients sollen nur noch per HTTPS kommen.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# Verraet nicht, welche Software hier laeuft.
+		-Server
+	}
+
+	# Weiterleitung an den Kassaserver im internen Docker-Netz.
+	#
+	# WebSockets (/ws) brauchen hier KEINE Sonderbehandlung: Caddy 2 erkennt
+	# den Upgrade-Header selbst und schaltet die Verbindung durch. Bitte
+	# nicht "versehentlich reparieren" — zusaetzliche Header-Regeln machen
+	# WebSockets eher kaputt als heil.
+	#
+	# "kassa" ist der Servicename aus docker-compose.yml, 8080 der dort
+	# gesetzte PORT.
+	reverse_proxy kassa:8080
+
+	# Zugriffe protokollieren. Docker rotiert das Log (siehe compose).
+	log {
+		output stdout
+		format console
+	}
+}

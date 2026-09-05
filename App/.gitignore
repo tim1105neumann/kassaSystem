@@ -1,0 +1,5 @@
+# Von XcodeGen erzeugt — project.yml ist die Quelle.
+Kassa.xcodeproj/
+DerivedData/
+*.xcuserstate
+xcuserdata/

@@ -1,0 +1,8 @@
+# Enthaelt das Kassa-Passwort — darf niemals ins Repository.
+.env
+
+# Lokale Backups, falls sie versehentlich hier landen.
+backups/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

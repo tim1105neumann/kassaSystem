@@ -1,0 +1,104 @@
+# Kassasystem Heuriger — komplettes Deployment.
+#
+#   Starten:  cd deploy && docker compose up -d
+#   Status:   docker compose ps
+#   Logs:     docker compose logs -f
+#
+# Zwei Container:
+#   kassa  — der Vapor-Server. Haengt NICHT am oeffentlichen Netz,
+#            erreichbar nur ueber den Proxy.
+#   caddy  — Reverse Proxy, holt und erneuert das HTTPS-Zertifikat
+#            von Let's Encrypt vollautomatisch.
+#
+# Alle Einstellungen stehen in der Datei .env (Vorlage: .env.example).
+
+name: kassa
+
+services:
+  kassa:
+    # Build-Kontext ist das Projekt-Hauptverzeichnis (eine Ebene ueber deploy/),
+    # weil der Server das Swift-Paket aus Shared/ mitkompiliert und daher
+    # beide Ordner sehen muss.
+    build:
+      context: ..
+      dockerfile: Server/Dockerfile
+
+    restart: unless-stopped
+
+    environment:
+      # Pflicht. Ohne Eintrag in .env startet nichts — das ist Absicht.
+      KASSA_PASSWORD: ${KASSA_PASSWORD:?KASSA_PASSWORD fehlt. Bitte .env anlegen (Vorlage .env.example).}
+      TABLE_COUNT: ${TABLE_COUNT:-40}
+      BUSINESS_DAY_CUTOFF_HOUR: ${BUSINESS_DAY_CUTOFF_HOUR:-6}
+
+      # Fest verdrahtet, weil an das Volume bzw. den Proxy gekoppelt.
+      # Nicht ohne Grund aendern (der Caddyfile-Eintrag muesste sonst mit).
+      DATABASE_PATH: /data/kassa.sqlite
+      PORT: 8080
+
+      # Wichtig fuer den Tageswechsel um 06:00: ohne Zeitzone rechnet der
+      # Server in UTC und der Betriebstag verschiebt sich um 1-2 Stunden.
+      TZ: Europe/Vienna
+
+    volumes:
+      # Hier liegt die Datenbank. Ueberlebt Updates und Neustarts.
+      - data:/data
+
+    # Bewusst KEIN "ports:" — der Server soll ausschliesslich ueber Caddy
+    # erreichbar sein. "expose" oeffnet nur innerhalb des Docker-Netzes.
+    expose:
+      - "8080"
+
+    # Prueft, ob der Server ueberhaupt HTTP beantwortet. Auch eine
+    # 401-Antwort zaehlt als "lebt" — /config kann Login verlangen.
+    # Setzt voraus, dass curl im Server-Image installiert ist.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/config | grep -q '^[234]'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+    # Ohne Begrenzung waechst das Log bis die VPS-Platte voll ist.
+    # 3 Dateien x 10 MB = maximal 30 MB pro Container.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+
+    restart: unless-stopped
+
+    # Nur Start-Reihenfolge, bewusst ohne "condition: service_healthy":
+    # Caddy soll auch dann laufen, wenn der Server gerade Probleme hat.
+    depends_on:
+      - kassa
+
+    ports:
+      - "80:80"     # noetig fuer die Zertifikatspruefung von Let's Encrypt
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN fehlt. Bitte .env anlegen (Vorlage .env.example).}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL fehlt. Bitte .env anlegen (Vorlage .env.example).}
+      TZ: Europe/Vienna
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # die Zertifikate — dieses Volume nie loeschen
+      - caddy_config:/config
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  data:          # SQLite-Datenbank des Kassaservers
+  caddy_data:    # Let's-Encrypt-Zertifikate und Kontoschluessel
+  caddy_config:  # interner Caddy-Zustand

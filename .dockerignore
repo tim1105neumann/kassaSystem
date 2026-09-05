@@ -1,0 +1,11 @@
+# Der Build-Kontext ist das Repo-Root (der Server braucht Shared/ mit),
+# deshalb muss hier alles raus, was nicht in den Container gehört.
+App/
+deploy/
+.build/
+**/.build/
+**/DerivedData/
+**/*.xcodeproj/
+.git/
+.gitignore
+**/.DS_Store
