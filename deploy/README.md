@@ -13,20 +13,33 @@ ssh root@<IP-des-VPS>
 
 ## Was hier eigentlich läuft
 
-Zwei Programme („Container") laufen nebeneinander:
+Auf diesem VPS laufen bereits andere Webseiten (z. B.
+`aerolog.timneumann.tech`), und dafür läuft dort ein **nginx**, das die Ports
+80 und 443 belegt. Das Kassasystem fügt sich da ein, statt sich damit zu
+streiten:
 
-| Container | Aufgabe |
-|-----------|---------|
-| `kassa`   | Der eigentliche Server. Speichert Bestellungen in einer SQLite-Datei und hält die iPhones per WebSocket auf dem gleichen Stand. |
-| `caddy`   | Steht davor und macht die Verschlüsselung (HTTPS). Holt und erneuert das Zertifikat vollautomatisch. |
+| Was | Wo | Aufgabe |
+|-----|-----|---------|
+| `kassa` (Docker-Container) | nur `127.0.0.1:8080` | Der eigentliche Server. Speichert Bestellungen in einer SQLite-Datei und hält die iPhones per WebSocket auf dem gleichen Stand. |
+| `nginx` (auf dem Server selbst, kein Container) | Ports 80 + 443 | Nimmt die Anfragen aus dem Internet an, macht die Verschlüsselung (HTTPS) und reicht alles an `127.0.0.1:8080` weiter. |
 
-Der `kassa`-Container ist aus dem Internet **nicht direkt** erreichbar — es
-kommt alles über `caddy`. Das ist Absicht.
+Der Container hängt bewusst nur auf `127.0.0.1` (also „nur dieser Rechner").
+Aus dem Internet ist er **nicht direkt** erreichbar — es kommt alles über
+nginx. Würde dort `0.0.0.0` oder gar nichts stehen, wäre der Kassaserver
+ungeschützt und ohne HTTPS offen im Netz.
 
-Die Daten liegen in zwei Docker-Volumes, die Updates und Neustarts überleben:
+Das HTTPS-Zertifikat besorgt **certbot**, nicht das Kassasystem. Es erneuert
+sich danach von selbst.
 
-- `kassa_data` — die Datenbank (`/data/kassa.sqlite`)
-- `kassa_caddy_data` — die HTTPS-Zertifikate
+Zwei Dateien gehören zusammen:
+
+- `docker-compose.yml` — startet den Container
+- `nginx-kassa.conf` — der nginx-Block, der auf den Container zeigt.
+  Diese Datei wird nach `/etc/nginx/sites-available/kassa` **kopiert**; das
+  Original hier im Ordner ist nur die Vorlage.
+
+Die Daten liegen im Docker-Volume `kassa_data` (`/data/kassa.sqlite`), das
+Updates und Neustarts überlebt.
 
 ---
 
@@ -36,24 +49,24 @@ Die Daten liegen in zwei Docker-Volumes, die Updates und Neustarts überleben:
 
 2. **Eine Domain, die auf den VPS zeigt.**
    Beim Domain-Anbieter einen A-Record anlegen, z. B.
-   `kassa.beispiel.at` → `<IP-des-VPS>`.
+   `kassa.viennax.at` → `<IP-des-VPS>`.
 
    Prüfen, ob das schon greift:
 
    ```bash
-   dig +short kassa.beispiel.at
+   dig +short kassa.viennax.at
    ```
 
    Es muss die IP des VPS herauskommen. Erst dann weitermachen — ohne
-   funktionierenden DNS-Eintrag bekommt der Server **kein Zertifikat**.
+   funktionierenden DNS-Eintrag bekommt certbot **kein Zertifikat**.
    Nach einer DNS-Änderung kann es bis zu einer Stunde dauern.
 
-3. **Docker installieren** (nur beim ersten Mal):
+3. **nginx und certbot** (nginx läuft meist schon):
 
    ```bash
    apt update
+   apt install -y nginx certbot python3-certbot-nginx
    apt install -y curl git sqlite3
-   curl -fsSL https://get.docker.com | sh
    ```
 
    `sqlite3` wird für die Backup-Skripte gebraucht, `git` zum Holen des
@@ -62,17 +75,41 @@ Die Daten liegen in zwei Docker-Volumes, die Updates und Neustarts überleben:
    Kontrolle:
 
    ```bash
+   nginx -v
+   systemctl status nginx     # soll "active (running)" sein
+   certbot --version
+   ```
+
+4. **Docker installieren** (nur beim ersten Mal):
+
+   ```bash
+   curl -fsSL https://get.docker.com | sh
    docker --version
    docker compose version
    ```
+
+5. **Ist Port 8080 noch frei?** Auf dem Port soll der Container lauschen. Wenn
+   dort schon etwas anderes läuft, gibt es beim Start einen Fehler:
+
+   ```bash
+   ss -tlnp | grep 8080
+   ```
+
+   **Keine Ausgabe = frei = alles gut.** Kommt eine Zeile zurück, ist der
+   Port belegt. Dann in der `.env` einen anderen Port eintragen, z. B.
+   `KASSA_HOST_PORT=8090`, und in `nginx-kassa.conf` das `proxy_pass`
+   auf `http://127.0.0.1:8090` ändern. Die beiden Werte müssen immer
+   zusammenpassen.
 
 ---
 
 ## 2. Firewall
 
 Es sollen nur drei Ports von außen erreichbar sein: SSH (22), HTTP (80) und
-HTTPS (443). Port 80 wird gebraucht, weil Let's Encrypt darüber prüft, ob die
-Domain wirklich zum Server gehört.
+HTTPS (443). Diese Ports gehören dem nginx, das ohnehin schon die anderen
+Seiten ausliefert. Port 80 muss offen bleiben, weil certbot darüber prüft, ob
+die Domain wirklich zu diesem Server gehört — und das bei **jeder**
+Erneuerung erneut tut.
 
 ```bash
 apt install -y ufw
@@ -81,9 +118,8 @@ ufw default deny incoming
 ufw default allow outgoing
 
 ufw allow 22/tcp     # SSH — NICHT vergessen, sonst sperrt man sich aus
-ufw allow 80/tcp     # HTTP (Zertifikatsprüfung + Weiterleitung auf HTTPS)
+ufw allow 80/tcp     # HTTP (certbot-Prüfung + Weiterleitung auf HTTPS)
 ufw allow 443/tcp    # HTTPS
-ufw allow 443/udp    # HTTP/3
 
 ufw enable
 ufw status
@@ -93,8 +129,9 @@ ufw status
 > ist. Andernfalls ist der VPS per SSH nicht mehr erreichbar und muss über die
 > Notfall-Konsole des Anbieters repariert werden.
 
-Der Datenbank-Port muss **nicht** geöffnet werden — die Datenbank ist eine
-Datei im Container und von außen nicht ansprechbar.
+Der Port 8080 wird **nicht** freigegeben und darf es auch nicht. Er ist an
+`127.0.0.1` gebunden und damit von außen ohnehin nicht erreichbar — das ist
+so gewollt.
 
 ---
 
@@ -130,8 +167,8 @@ Die Ausgabe kopieren, dann die Datei öffnen:
 nano .env
 ```
 
-Ausfüllen: `DOMAIN`, `ACME_EMAIL` und `KASSA_PASSWORD`. Speichern mit
-`Strg+O`, `Enter`, schließen mit `Strg+X`.
+Ausfüllen: `KASSA_PASSWORD`. Speichern mit `Strg+O`, `Enter`, schließen mit
+`Strg+X`.
 
 Rechte einschränken, damit das Passwort nicht für jeden lesbar ist:
 
@@ -142,8 +179,11 @@ chmod 600 .env
 > Die Datei `.env` wird nie ins Git-Repository übernommen (dafür sorgt die
 > `.gitignore`). Das Passwort existiert also **nur hier auf dem VPS** — es
 > sollte zusätzlich im Passwortmanager liegen.
+>
+> Die Domain steht **nicht** in der `.env`, sondern in der nginx-Datei
+> (Schritt 4). HTTPS macht nginx, nicht der Container.
 
-### Schritt 3 — Starten
+### Schritt 3 — Container starten
 
 ```bash
 docker compose up -d --build
@@ -152,31 +192,105 @@ docker compose up -d --build
 Der erste Start dauert lange (10–20 Minuten), weil der Swift-Server
 komplett übersetzt wird. Spätere Starts dauern Sekunden.
 
-### Schritt 4 — Kontrollieren
+Kontrollieren:
 
 ```bash
 docker compose ps
 ```
 
-Beide Container sollen `running` sein, `kassa` zusätzlich `healthy`
-(das kann bis zu einer Minute dauern).
+Der Container soll `running` sein und nach etwa einer Minute `healthy`.
 
-Dann von außen testen — am besten vom Handy im Mobilfunknetz, nicht vom VPS:
+Direkt auf dem Server testen, noch ohne nginx:
 
 ```bash
-curl https://kassa.beispiel.at/config
+curl -i http://127.0.0.1:8080/config
 ```
 
-Wenn eine Antwort kommt (auch eine Fehlermeldung wegen fehlendem Login ist
-in Ordnung) und `curl` **nicht** über das Zertifikat meckert, steht der
-Server.
+Eine Antwort muss kommen — auch eine Fehlermeldung wegen fehlendem Login ist
+in Ordnung. Wichtig ist nur, dass überhaupt etwas antwortet. Erst wenn das
+klappt, hat der nächste Schritt Sinn.
 
-### Schritt 5 — iPhones einrichten
+### Schritt 4 — nginx einrichten
 
-In der Kassa-App die Adresse `https://kassa.beispiel.at` und das Passwort aus
+Die Vorlage kopieren:
+
+```bash
+cp /opt/kassa/deploy/nginx-kassa.conf /etc/nginx/sites-available/kassa
+```
+
+Domain kontrollieren — sie muss beim `server_name` stehen:
+
+```bash
+nano /etc/nginx/sites-available/kassa
+```
+
+Block aktivieren:
+
+```bash
+ln -s /etc/nginx/sites-available/kassa /etc/nginx/sites-enabled/kassa
+```
+
+**Erst prüfen, dann neu laden.** `nginx -t` findet Tippfehler, bevor sie die
+anderen Seiten auf dem Server mitreißen:
+
+```bash
+nginx -t
+```
+
+Nur wenn dort `syntax is ok` und `test is successful` steht, weitermachen:
+
+```bash
+systemctl reload nginx
+```
+
+> `reload` statt `restart`: nginx übernimmt die neue Konfiguration, ohne die
+> laufenden Verbindungen der anderen Seiten zu unterbrechen.
+
+Jetzt testen — noch über HTTP, ohne `s`:
+
+```bash
+curl -i http://kassa.viennax.at/config
+```
+
+Kommt eine Antwort vom Kassaserver, steht die Weiterleitung.
+
+### Schritt 5 — HTTPS-Zertifikat holen
+
+**Erst jetzt**, nachdem der Port-80-Block aus Schritt 4 aktiv ist:
+
+```bash
+certbot --nginx -d kassa.viennax.at
+```
+
+> **Die Reihenfolge ist wichtig.** certbot sucht in den nginx-Dateien nach
+> einem Block mit genau diesem `server_name`. Ohne Schritt 4 findet es die
+> Domain nicht und bricht ab. Deshalb liefert `nginx-kassa.conf` bewusst nur
+> den Port-80-Block mit — den HTTPS-Teil schreibt certbot selbst dazu.
+
+certbot fragt nach einer E-Mail-Adresse (dorthin kommen Ablaufwarnungen) und
+ob auf HTTPS umgeleitet werden soll — **ja, umleiten** auswählen.
+
+Danach von außen prüfen, am besten vom Handy im Mobilfunknetz:
+
+```bash
+curl https://kassa.viennax.at/config
+```
+
+Wenn eine Antwort kommt und `curl` **nicht** über das Zertifikat meckert,
+steht der Server.
+
+Die Erneuerung läuft ab jetzt automatisch. Kontrollieren lässt sie sich mit:
+
+```bash
+certbot renew --dry-run
+```
+
+### Schritt 6 — iPhones einrichten
+
+In der Kassa-App die Adresse `https://kassa.viennax.at` und das Passwort aus
 der `.env` eintragen. Das ist pro Gerät einmal nötig.
 
-### Schritt 6 — Backup einrichten
+### Schritt 7 — Backup einrichten
 
 Siehe Abschnitt 6 weiter unten. **Bitte gleich machen, nicht später** — ein
 Backup, das erst nach dem ersten Datenverlust eingerichtet wird, hilft nicht.
@@ -188,28 +302,30 @@ Backup, das erst nach dem ersten Datenverlust eingerichtet wird, hilft nicht.
 ```bash
 cd /opt/kassa/deploy
 
-docker compose ps          # Läuft alles?
+docker compose ps          # Läuft der Server?
 docker compose logs -f     # Live mitschauen (beenden mit Strg+C)
 docker compose restart     # Neu starten, wenn etwas hängt
 ```
 
-Nur die Meldungen des Servers, die letzten 100 Zeilen:
+Die letzten 100 Zeilen:
 
 ```bash
 docker compose logs --tail=100 kassa
 ```
 
-Nur den Proxy (interessant bei Zertifikatsproblemen):
+Das nginx hat eigene Logdateien, nur für das Kassasystem:
 
 ```bash
-docker compose logs --tail=100 caddy
+tail -50 /var/log/nginx/kassa.access.log
+tail -50 /var/log/nginx/kassa.error.log
 ```
 
-Die Logs werden automatisch begrenzt (max. 30 MB pro Container), es kann also
-nichts unbemerkt die Platte vollschreiben.
+Die Container-Logs werden automatisch begrenzt (max. 30 MB), es kann also
+nichts unbemerkt die Platte vollschreiben. Die nginx-Logs übernimmt das
+`logrotate` des Systems.
 
-**Neustart des ganzen VPS:** Beide Container starten von selbst wieder
-(`restart: unless-stopped`). Es ist nichts von Hand zu tun.
+**Neustart des ganzen VPS:** Container und nginx starten von selbst wieder.
+Es ist nichts von Hand zu tun.
 
 ---
 
@@ -225,7 +341,21 @@ docker compose ps                 # kontrollieren
 docker compose logs --tail=50 kassa
 ```
 
-Die Datenbank bleibt dabei erhalten — sie liegt im Volume, nicht im Container.
+Das betrifft **nur den Container**. Am nginx und am Zertifikat muss dabei
+nichts angefasst werden — die laufen unabhängig weiter, und während der
+wenigen Sekunden Neustart antwortet die Seite kurz mit `502` (siehe
+Abschnitt 9). Die anderen Seiten auf dem Server merken davon nichts.
+
+Nur wenn sich `nginx-kassa.conf` durch das Update geändert hat, die Datei
+neu kopieren:
+
+```bash
+cp nginx-kassa.conf /etc/nginx/sites-available/kassa
+nginx -t && systemctl reload nginx
+```
+
+Die Datenbank bleibt bei alldem erhalten — sie liegt im Volume, nicht im
+Container.
 
 Alte, nicht mehr gebrauchte Docker-Images gelegentlich wegräumen:
 
@@ -338,122 +468,241 @@ Und in der App nachsehen, ob die Daten stimmen.
 Die Preisliste liegt als `preisliste.csv` im Hauptverzeichnis des Projekts
 (Spalten: `Kategorie`, `Artikel`, `Preis`).
 
-1. Datei anpassen — am einfachsten am eigenen Rechner in einem
-   Tabellenprogramm, dann per Git oder `scp` auf den VPS.
+> **Wichtig zu wissen:** Der Server liest die CSV **nur beim allerersten
+> Start** von selbst ein, solange noch kein einziger Artikel in der Datenbank
+> steht. Danach passiert beim Neustart nichts mehr — sonst würde jeder
+> Neustart die Preise überschreiben. Für eine Änderung im laufenden Betrieb
+> muss der Import deshalb ausdrücklich angestoßen werden.
 
-2. Vorher sichern:
+1. **Datei anpassen** — am einfachsten am eigenen Rechner in einem
+   Tabellenprogramm, dann per Git oder `scp` auf den VPS. Die Datei sollte
+   auch im Projekt aktualisiert werden, damit eine spätere Neuinstallation
+   gleich den richtigen Stand hat.
+
+2. **Vorher sichern:**
 
    ```bash
    cd /opt/kassa/deploy
    ./backup.sh
    ```
 
-3. Die Datei in den Server-Container legen und diesen neu starten:
+3. **Datei in den Container kopieren und den Import auslösen:**
 
    ```bash
    docker compose cp ../preisliste.csv kassa:/data/preisliste.csv
-   docker compose restart kassa
-   docker compose logs --tail=50 kassa
+   docker compose exec kassa ./Server import-prices /data/preisliste.csv
    ```
 
-   Im Log muss stehen, wie viele Artikel eingelesen wurden.
+   Der zweite Befehl gibt aus, wie viele Artikel eingelesen wurden, z. B.
+   `32 Artikel importiert, catalogVersion=4.` Kommt keine solche Zeile,
+   wurde nichts geändert.
 
-4. Auf den iPhones die App einmal neu starten, damit die neuen Preise
-   ankommen.
+4. **Auf den iPhones** die App einmal neu starten, falls die neuen Preise
+   nicht von selbst ankommen.
 
-> **Hinweis:** Preise wirken sich nur auf **neue** Bestellungen aus. Bereits
-> gebuchte Zeilen behalten den Preis, der zum Zeitpunkt der Bestellung
-> gegolten hat — das muss so sein, sonst würden alte Tagesabschlüsse
-> nachträglich andere Summen ergeben.
+> Am besten außerhalb der Öffnungszeiten machen. Der Import schreibt in
+> dieselbe Datenbank, in der gerade kassiert wird.
 
-> **Falls der Import so nicht greift:** Der genaue Weg hängt davon ab, wie der
-> Server den Import umsetzt (Datei beim Start einlesen oder Import über die
-> App). Im Zweifel ins Server-Log schauen — dort steht, welchen Pfad der
-> Server sucht.
+**Was der Import tut und was nicht:** Bekannte Artikel bekommen den neuen
+Preis, neue kommen dazu, und Artikel, die nicht mehr in der CSV stehen,
+werden stillgelegt — **gelöscht wird nie**. Das muss so sein: Bereits
+gebuchte Zeilen behalten den Preis, der zum Zeitpunkt der Bestellung
+gegolten hat. Sonst würden alte Tagesabschlüsse nachträglich andere Summen
+ergeben.
 
 ---
 
 ## 9. Wenn's nicht geht
 
-### Das Zertifikat kommt nicht / die App meldet einen HTTPS-Fehler
+Vorweg die nützlichste Unterscheidung: **Antwortet der Container, oder
+antwortet nur nginx?**
 
 ```bash
-docker compose logs caddy | tail -50
+curl -i http://127.0.0.1:8080/config      # der Container direkt
+curl -i https://kassa.viennax.at/config   # der ganze Weg von außen
 ```
 
-Die häufigsten Ursachen, der Reihe nach prüfen:
+Klappt der erste Befehl, aber der zweite nicht, liegt es am nginx oder am
+Zertifikat. Klappt schon der erste nicht, liegt es am Container.
 
-1. **Die Domain zeigt nicht auf den VPS.**
+### 502 Bad Gateway
+
+nginx antwortet, erreicht aber den Kassaserver nicht. Das ist der häufigste
+Fall.
+
+```bash
+cd /opt/kassa/deploy
+docker compose ps
+```
+
+1. **Der Container läuft nicht.** Steht dort nichts oder `exited`:
+
    ```bash
-   dig +short kassa.beispiel.at      # muss die IP des VPS liefern
+   docker compose logs --tail=50 kassa
+   docker compose up -d
    ```
+
+   Beim Start abgebrochen? Oft fehlt die `.env` oder das
+   `KASSA_PASSWORD` darin — die Fehlermeldung sagt das im Klartext.
+
+2. **Der Container läuft, aber auf einem anderen Port.** Die beiden Werte
+   müssen zusammenpassen:
+
+   ```bash
+   grep KASSA_HOST_PORT .env
+   grep proxy_pass /etc/nginx/sites-available/kassa
+   ```
+
+   Steht in der `.env` z. B. `8090`, muss im `proxy_pass` auch
+   `http://127.0.0.1:8090` stehen. Nach einer Änderung:
+   `nginx -t && systemctl reload nginx`.
+
+3. **Kurzzeitig nach einem Update** ist `502` normal — der Container startet
+   gerade neu. Nach ein paar Sekunden noch einmal probieren.
+
+### 404 oder die falsche Seite statt der Kassa-Antwort
+
+Es kommt eine fremde Seite, die Standardseite von nginx oder ein `404`. Dann
+greift der Kassa-Block nicht, und nginx bedient die Anfrage mit einem anderen
+Block.
+
+1. **Ist der Block überhaupt aktiv?**
+
+   ```bash
+   ls -l /etc/nginx/sites-enabled/ | grep kassa
+   ```
+
+   Fehlt die Zeile, wurde der Symlink aus Schritt 4 nicht angelegt:
+
+   ```bash
+   ln -s /etc/nginx/sites-available/kassa /etc/nginx/sites-enabled/kassa
+   nginx -t && systemctl reload nginx
+   ```
+
+2. **Stimmt der `server_name`?** Er muss exakt der aufgerufenen Domain
+   entsprechen — ohne `https://`, ohne Schrägstrich:
+
+   ```bash
+   grep server_name /etc/nginx/sites-available/kassa
+   ```
+
+3. **Wurde nach der Änderung neu geladen?** Ein `nginx -t` allein bewirkt
+   nichts, es prüft nur:
+
+   ```bash
+   nginx -t && systemctl reload nginx
+   ```
+
+### Das Zertifikat kommt nicht / die App meldet einen HTTPS-Fehler
+
+Typisches Zeichen: `curl` meckert über das Zertifikat, weil nginx mangels
+passendem Block auf eine andere Seite zurückfällt und deren Zertifikat
+zeigt.
+
+1. **Zeigt die Domain auf den VPS?**
+
+   ```bash
+   dig +short kassa.viennax.at      # muss die IP des VPS liefern
+   ```
+
    Wenn nicht: DNS-Eintrag beim Domain-Anbieter korrigieren und bis zu einer
    Stunde warten.
 
-2. **Port 80 ist von außen zu.** Let's Encrypt muss den Server auf Port 80
-   erreichen. Firewall prüfen (`ufw status`) — auch die Firewall im Webpanel
-   des VPS-Anbieters, die gibt es oft zusätzlich.
+2. **Ist Port 80 von außen erreichbar?** certbot prüft darüber die Domain.
+   Firewall kontrollieren (`ufw status`) — auch die Firewall im Webpanel des
+   VPS-Anbieters, die gibt es oft zusätzlich.
 
-3. **Tippfehler in `DOMAIN`.** In der `.env` steht die Domain ohne
-   `https://` und ohne Schrägstrich am Ende.
+3. **Gibt es den Port-80-Block schon?** certbot findet die Domain nur, wenn
+   der Block aus Schritt 4 aktiv ist. Also zuerst Schritt 4 fertig machen,
+   dann:
 
-4. **Zu viele Fehlversuche.** Let's Encrypt sperrt nach etwa fünf
+   ```bash
+   certbot --nginx -d kassa.viennax.at
+   ```
+
+4. **Was sagt certbot selbst?**
+
+   ```bash
+   certbot certificates          # welche Zertifikate gibt es, wie lange gültig?
+   certbot renew --dry-run       # Erneuerung proben, ohne etwas zu ändern
+   ```
+
+5. **Zu viele Fehlversuche.** Let's Encrypt sperrt nach etwa fünf
    fehlgeschlagenen Versuchen pro Domain und Woche. Dann erst die Ursache
-   beheben, danach eine Stunde warten. Zum Ausprobieren kann im `Caddyfile`
-   die Zeile `acme_ca ...` (Staging) vorübergehend aktiviert werden — die
-   Zertifikate sind dann zwar ungültig, aber man sieht, ob der Ablauf
-   funktioniert. **Danach wieder auskommentieren** und einmal
-   `docker compose restart caddy`.
-
-### Port 80 oder 443 ist belegt — Caddy startet nicht
-
-Fehlermeldung in der Art von `address already in use`.
-
-```bash
-ss -tlnp | grep -E ':(80|443)\s'
-```
-
-Meist läuft ein Apache oder Nginx aus einer früheren Installation:
-
-```bash
-systemctl stop apache2 nginx
-systemctl disable apache2 nginx
-docker compose up -d
-```
+   beheben, danach eine Stunde warten. Zum Ausprobieren hilft
+   `certbot --nginx --dry-run -d kassa.viennax.at` — das zählt nicht auf das
+   Limit.
 
 ### Die iPhones aktualisieren sich nicht gegenseitig (WebSocket)
 
-Bestellungen kommen an, aber die anderen Geräte sehen sie erst nach manuellem
-Neuladen. Dann steht die WebSocket-Verbindung nicht.
+**Das Bild:** Kassieren funktioniert, Bestellungen werden gespeichert, alles
+wirkt normal — aber die anderen Geräte sehen eine neue Bestellung erst, wenn
+man die App neu startet. Nichts stürzt ab, es gibt keine Fehlermeldung.
 
-1. Läuft der Server überhaupt?
-   ```bash
-   docker compose ps
-   docker compose logs --tail=50 kassa
-   ```
+Genau so sieht es aus, wenn die WebSocket-Verbindung nicht durchkommt. Das
+ist der unangenehmste Fehler, weil er leicht monatelang unbemerkt bleibt.
 
-2. Verbindung von außen testen:
-   ```bash
-   curl -i -N \
-     -H "Connection: Upgrade" -H "Upgrade: websocket" \
-     -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGVzdHRlc3R0ZXN0dGVzdA==" \
-     https://kassa.beispiel.at/ws
-   ```
-   Richtig ist `HTTP/1.1 101 Switching Protocols`. Kommt `200` oder `404`,
-   antwortet der Server, aber nicht als WebSocket. Kommt `502`, läuft der
-   `kassa`-Container nicht.
+**Der Grund:** nginx reicht WebSocket-Verbindungen — anders als manch andere
+Proxys — **nicht von selbst** durch. Es braucht dafür ausdrücklich die drei
+Zeilen `proxy_http_version 1.1`, `proxy_set_header Upgrade` und
+`proxy_set_header Connection` sowie die `map`-Zuordnung darüber. Fehlt davon
+etwas, behandelt nginx die Anfrage als ganz normalen Aufruf: Der Server
+antwortet mit `200` oder `404` statt mit `101`, die Verbindung kommt nie
+zustande — und der Rest der App läuft weiter, als wäre nichts.
 
-3. **Nicht am `Caddyfile` herumbasteln.** Caddy leitet WebSockets von sich aus
-   korrekt weiter; zusätzliche Header-Regeln (wie man sie aus
-   Nginx-Anleitungen kennt) machen es eher kaputt. Wurde die Datei geändert:
-   ```bash
-   git checkout Caddyfile
-   docker compose restart caddy
-   ```
+**So prüft man es.** Von außen, mit einem echten Upgrade-Versuch:
 
-4. Mobilfunknetze trennen ruhende Verbindungen nach einigen Minuten. Wenn ein
-   iPhone nach längerer Pause im Sperrbildschirm kurz nicht aktuell ist und
-   sich nach ein paar Sekunden von selbst fängt, ist das normal.
+```bash
+curl -i -N \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGVzdHRlc3R0ZXN0dGVzdA==" \
+  https://kassa.viennax.at/ws
+```
+
+| Antwort | Bedeutung |
+|---------|-----------|
+| `101 Switching Protocols` | Richtig. Die WebSockets kommen durch. |
+| `200` oder `404` | Der Server antwortet, aber die Upgrade-Header fehlen — genau der oben beschriebene Fehler. |
+| `502` | Der Container läuft nicht, siehe „502 Bad Gateway". |
+
+**Wenn `101` fehlt**, die vier Stellen in der nginx-Datei kontrollieren:
+
+```bash
+grep -nE "^[[:space:]]*(map|proxy_http_version|proxy_set_header (Upgrade|Connection))" \
+  /etc/nginx/sites-available/kassa
+```
+
+**Es müssen genau vier Zeilen herauskommen:**
+
+```
+24:map $http_upgrade $kassa_connection_upgrade {
+48:        proxy_http_version 1.1;
+49:        proxy_set_header Upgrade    $http_upgrade;
+50:        proxy_set_header Connection $kassa_connection_upgrade;
+```
+
+Die Zeilennummern dürfen abweichen, die vier Zeilen selbst nicht. Kommt
+weniger heraus, fehlt genau das, was die WebSockets durchlässt. Dann ist die
+einfachste Reparatur, die geprüfte Vorlage neu zu kopieren:
+
+```bash
+cd /opt/kassa/deploy
+cp nginx-kassa.conf /etc/nginx/sites-available/kassa
+nano /etc/nginx/sites-available/kassa    # server_name kontrollieren
+nginx -t && systemctl reload nginx
+certbot --nginx -d kassa.viennax.at      # HTTPS-Teil wieder ergänzen
+```
+
+> Achtung: Die Vorlage enthält nur den Port-80-Block. Wird sie neu kopiert,
+> ist der von certbot ergänzte HTTPS-Teil weg und muss mit dem letzten
+> Befehl wieder hinzugefügt werden.
+
+**Was normal ist:** Mobilfunknetze trennen ruhende Verbindungen. Wenn ein
+iPhone nach längerer Pause kurz nicht aktuell ist und sich nach ein paar
+Sekunden von selbst fängt, ist das in Ordnung. Der `proxy_read_timeout` von
+einer Stunde in der nginx-Datei sorgt dafür, dass nginx die Verbindung nicht
+schon nach einer Minute Stille abräumt — dieser Wert sollte nicht verkleinert
+werden.
 
 ### Die Platte ist voll
 
@@ -493,13 +742,17 @@ wenn das Vorherige nichts gebracht hat:
 ```bash
 cd /opt/kassa/deploy
 
-docker compose restart            # 1. einfacher Neustart (Sekunden)
-docker compose down && docker compose up -d   # 2. Container neu aufsetzen
-reboot                            # 3. ganzen VPS neu starten
+docker compose restart                        # 1. Container neu starten (Sekunden)
+systemctl reload nginx                        # 2. nginx neu einlesen
+docker compose down && docker compose up -d   # 3. Container neu aufsetzen
+reboot                                        # 4. ganzen VPS neu starten
 ```
 
-Die Daten bleiben bei allen drei Schritten erhalten. Erst wenn die Datenbank
+Die Daten bleiben bei allen vier Schritten erhalten. Erst wenn die Datenbank
 selbst beschädigt ist, kommt `./restore.sh` an die Reihe (Abschnitt 7).
+
+> Schritt 4 startet auch die anderen Seiten auf dem Server neu. Im
+> Heurigenbetrieb ist das kein Problem, aber man sollte es wissen.
 
 ---
 
@@ -508,11 +761,17 @@ selbst beschädigt ist, kommt `./restore.sh` an die Reihe (Abschnitt 7).
 ```bash
 cd /opt/kassa/deploy
 
-docker compose ps                 # Status
+docker compose ps                 # Läuft der Container?
 docker compose logs -f kassa      # Log mitlesen
 docker compose restart            # Neustart
 ./backup.sh                       # sichern
 ./restore.sh                      # Sicherungen auflisten
+
+curl -i http://127.0.0.1:8080/config      # Container direkt testen
+curl -i https://kassa.viennax.at/config   # ganzen Weg testen
+
+nginx -t && systemctl reload nginx        # nginx-Änderung übernehmen
+certbot certificates                      # Zertifikat und Laufzeit
 ```
 
 Wichtige Orte:
@@ -520,6 +779,9 @@ Wichtige Orte:
 | Was | Wo |
 |-----|-----|
 | Einstellungen und Passwort | `/opt/kassa/deploy/.env` |
+| nginx-Block (aktiv) | `/etc/nginx/sites-available/kassa` |
+| nginx-Block (Vorlage) | `/opt/kassa/deploy/nginx-kassa.conf` |
+| nginx-Logs der Kassa | `/var/log/nginx/kassa.access.log`, `kassa.error.log` |
 | Backups | `/var/backups/kassa/` |
 | Backup-Protokoll | `/var/log/kassa-backup.log` |
 | Datenbank (im Docker-Volume) | `docker volume inspect kassa_data` |
