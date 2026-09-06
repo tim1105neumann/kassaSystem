@@ -45,6 +45,11 @@ func createSettlement(request: Request) async throws -> Response {
     guard !order.isEmpty else {
         throw Abort(.badRequest, reason: "Keine Zeilen ausgewählt")
     }
+    // Ein negatives Trinkgeld wäre ein Nachlass — den gibt es hier nicht, und er
+    // würde den Tagesabschluss unbemerkt kleinrechnen.
+    guard body.tipCents >= 0 else {
+        throw Abort(.badRequest, reason: "Trinkgeld darf nicht negativ sein")
+    }
 
     do {
         let dto = try await request.mutate { db, seq in
@@ -96,7 +101,8 @@ func createSettlement(request: Request) async throws -> Response {
                 paidAt: paidAt,
                 deviceId: deviceId,
                 businessDay: BusinessDay.day(for: paidAt, cutoffHour: cutoffHour),
-                updatedSeq: seq
+                updatedSeq: seq,
+                tipCents: body.tipCents
             )
             try await settlement.create(on: db)
             let settlementID = try settlement.requireID()

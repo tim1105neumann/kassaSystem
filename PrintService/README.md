@@ -12,7 +12,7 @@ geklappt hat.
 |-----|-----|---------|
 | `kuechenbon` (Binary) | `/usr/local/kuechenbon/` auf dem alten Mac | Fragt den Kassaserver alle paar Sekunden nach neuen Bestellungen und druckt Küchenbons. |
 | LaunchDaemon `at.heuriger.kuechenbon` | `/Library/LaunchDaemons/` | Startet den Dienst automatisch beim Hochfahren — auch nach einem Stromausfall, ohne dass sich jemand anmelden muss. |
-| CUPS-Raw-Queue `Kuechenbon` | Teil von macOS | Reicht die Bytes unverändert an den Munbyn-Drucker weiter. |
+| CUPS-Warteschlange (z. B. `Printer_80`) | Legt macOS beim Anstecken selbst an | Nimmt die Druckaufträge entgegen; der Dienst schickt sie mit `-o raw`, also unverändert, an den Munbyn. |
 
 Der Mac, auf dem der Dienst läuft, ist **alt (2014), Intel, macOS 11.7.11
 Big Sur**. Der Entwicklungsrechner ist ein neuerer, arm64-basierter Mac.
@@ -92,7 +92,7 @@ Servers, siehe `deploy/README.md`):
   "serverURL": "https://kassa.viennax.at",
   "password": "das-gemeinsame-kassa-passwort",
   "deviceName": "Kuechendrucker",
-  "printerQueue": "Kuechenbon",
+  "printerQueue": "Printer_80",
   "foodCategory": "Speisen",
   "excludedArticles": ["Kaffee", "Mehlspeise"],
   "pollIntervalSeconds": 2,
@@ -128,50 +128,101 @@ Es muss `-rw-------` dastehen.
 
 ## 3. Drucker einrichten
 
-Der Munbyn hängt per USB. macOS soll ihn **nicht** über einen normalen
-Treiber ansprechen, sondern über eine **Raw-Queue**: Dabei gibt es keinen
-Treiber und keine PPD-Datei, die Bytes gehen unverändert an den Drucker —
-genau das will ein ESC/POS-Drucker, der seine Formatierung selbst über
-Steuerzeichen im Datenstrom bekommt. Ein normaler macOS-Druckertreiber
-würde versuchen, das als Text oder PDF zu interpretieren, und Zeichensalat
-oder gar nichts drucken.
+Der Munbyn hängt per USB und versteht **ESC/POS**: Er bekommt seine
+Formatierung nicht über einen Treiber, sondern über Steuerzeichen mitten im
+Datenstrom. Die Daten müssen ihn deshalb **unverändert** erreichen. Ein
+normaler Druckertreiber würde sie als Text oder PDF interpretieren und
+Zeichensalat oder gar nichts drucken.
 
-Zuerst die USB-Adresse herausfinden:
+Genau dafür gibt es in CUPS die Option `-o raw`, die alle Filter überspringt.
+Der Dienst setzt sie bei jedem Druckauftrag selbst — du musst dich nur um die
+richtige Warteschlange kümmern.
+
+**macOS legt die beim Anstecken bereits von selbst an.** Anzeigen lassen:
+
+```bash
+lpstat -p
+```
+
+**Erfolg sieht so aus:** Eine der Zeilen nennt den Drucker, meist unter einem
+generischen Namen:
+
+```
+printer Printer_80 is idle.  enabled since ...
+```
+
+Diesen Namen — hier `Printer_80` — trägst du in `config.json` als
+`printerQueue` ein. Das ist alles.
+
+### Damit die Warteschlange nicht stehen bleibt
+
+Bei einem USB-Aussetzer hält CUPS die Warteschlange standardmäßig an und
+lässt sie angehalten — mitten im Betrieb fällt das niemandem auf. Einmalig
+umstellen:
+
+```bash
+sudo lpadmin -p Printer_80 -o printer-error-policy=retry-job
+```
+
+Danach versucht CUPS es erneut, statt aufzugeben. Der Dienst prüft den
+Zustand zusätzlich vor jedem Druck: steht die Warteschlange, verweigert er
+den Druck und vermerkt den Bon **nicht** als erledigt — er kommt nach, sobald
+die Warteschlange wieder läuft. Ohne diese Prüfung gingen Bons lautlos
+verloren, denn `lp` meldet bereits Erfolg, wenn ein Auftrag nur eingereiht
+wurde.
+
+Angehaltene Warteschlange von Hand freigeben:
+
+```bash
+sudo cupsenable Printer_80
+lpq -P Printer_80          # hängen dort alte Aufträge?
+cancel -a Printer_80       # nur falls die verworfen werden sollen
+```
+
+> **Raw-Queues sind ein Auslaufmodell.** Frühere Anleitungen (auch eine
+> frühere Fassung dieser hier) empfahlen `lpadmin -m raw`. Der Stand, beides
+> geprüft:
+>
+> - **macOS 11.7** legt sie noch an, warnt aber: „Reine Wartelisten wurden
+>   verworfen und funktionieren in künftigen Versionen von CUPS nicht mehr."
+> - **macOS 26** verweigert sie ganz: `Raw queues are no longer supported`.
+>
+> Gebraucht werden sie nicht. Die Option `-o raw` beim Druckauftrag überspringt
+> die Filter unabhängig davon, welchen Treiber die Warteschlange hat — deshalb
+> funktioniert die von macOS selbst angelegte Warteschlange genauso gut und
+> bleibt auch künftig nutzbar. Auf einem 80-mm-Munbyn ist dieser Weg erprobt,
+> Umlaute inklusive.
+
+Taucht unter `lpstat -p` gar nichts auf, prüfen, ob CUPS das Gerät sieht:
 
 ```bash
 lpinfo -v
 ```
 
-**Erfolg sieht so aus:** In der Ausgabe steht eine Zeile, die mit
-`direct usb://Munbyn/...` oder ähnlich beginnt (Herstellername kann
-abweichen). Diese komplette `usb://...`-Adresse für den nächsten Befehl
-kopieren.
-
-Queue anlegen (die kopierte Adresse einsetzen):
+Dort muss eine Zeile wie `direct usb://Printer/Printer-80?serial=...`
+stehen. Erscheint sie, aber es gibt keine Warteschlange, lässt sie sich von
+Hand anlegen (die Adresse aus `lpinfo -v` einsetzen):
 
 ```bash
-sudo lpadmin -p Kuechenbon -E -v "usb://Munbyn/Printer?serial=..." -m raw
+sudo lpadmin -p Kuechenbon -E -v "usb://Printer/Printer-80?serial=012345678AB" \
+     -m drv:///sample.drv/generic.ppd
 ```
 
-Prüfen:
+Welches Modell, ist gleichgültig — es kommt nie zum Einsatz, weil der Dienst
+beim Drucken `-o raw` setzt und damit alle Filter überspringt. Andere
+Möglichkeiten zeigt `lpinfo -m`.
 
-```bash
-lpstat -p Kuechenbon
-```
-
-**Erfolg sieht so aus:**
-
-```
-printer Kuechenbon is idle.  enabled since ...
-```
-
-Steht dort `disabled`, siehe Fehlersuche-Tabelle unten.
+> **Nicht `-m everywhere` verwenden.** Das steht für IPP Everywhere und lässt
+> CUPS den Drucker übers Netz befragen. Bei einer `usb://`-Adresse deutet es
+> den ersten Pfadteil als Rechnernamen und scheitert mit
+> `nodename nor servname provided or not known`.
 
 > Ein späterer Umstieg auf einen Netzwerkdrucker wäre nur eine andere
 > `-v`-Adresse (z. B. `socket://192.168.1.50:9100` statt `usb://...`) — an
 > `config.json` und am restlichen Dienst ändert sich nichts.
 
 ---
+
 
 ## 4. Probebon drucken
 
@@ -296,10 +347,10 @@ anschließen (dann zählt der Deckel-Zustand nicht mehr).
 
 | Symptom | Wahrscheinliche Ursache | Befehl zum Prüfen |
 |---|---|---|
-| Gar kein Bon kommt | Dienst läuft nicht, oder Queue angehalten | `sudo launchctl print system/at.heuriger.kuechenbon`, `lpstat -p Kuechenbon` |
+| Gar kein Bon kommt | Dienst läuft nicht, oder Queue angehalten | `sudo launchctl print system/at.heuriger.kuechenbon`, `lpstat -p` |
 | Bon kommt, aber deutlich verspätet | Mac war eingeschlafen, oder `pollIntervalSeconds` sehr hoch gewählt | `pmset -g log \| grep -i sleep`, `cat /usr/local/kuechenbon/config.json` |
 | Zeichensalat statt Umlauten | Drucker-Firmware kommt mit der Codepage nicht zurecht | `"asciiFallback": true` setzen, siehe Abschnitt 4 |
-| `lpstat -p Kuechenbon` zeigt „disabled" | Queue wurde angehalten (z. B. nach einem USB-Fehler) | `sudo cupsenable Kuechenbon` |
+| Log meldet „Die Druckerwarteschlange … ist angehalten" | USB-Aussetzer, CUPS hat die Queue gestoppt | `lpstat -p`, dann `sudo cupsenable <Name der Queue>`; dauerhaft abstellen mit `printer-error-policy=retry-job`, siehe Abschnitt 3 |
 | Dienst läuft nicht / startet nicht | plist fehlerhaft, falsche Rechte, oder Binary fehlt | `sudo launchctl print system/at.heuriger.kuechenbon`, `tail -50 /usr/local/kuechenbon/kuechenbon.log` |
 | Papier leer | Der Drucker selbst braucht neues Papier | Papierrolle am Munbyn kontrollieren |
 

@@ -178,7 +178,7 @@ final class LocalStore {
     /// teilweise kassierte werden lokal um die Menge reduziert — der Server
     /// splittet die Zeile und liefert die Wahrheit beim nächsten Delta nach.
     @discardableResult
-    func settle(tableNumber: Int, selections: [SettlementLineSelection], total: Money, paidAt: Date = .now) -> UUID {
+    func settle(tableNumber: Int, selections: [SettlementLineSelection], total: Money, tip: Money = .zero, paidAt: Date = .now) -> UUID {
         let settlementId = UUID()
         let byId = Dictionary(uniqueKeysWithValues: lines(forTable: tableNumber).map { ($0.id, $0) })
 
@@ -197,7 +197,8 @@ final class LocalStore {
             totalCents: total.cents,
             paidAt: paidAt,
             deviceId: settings.deviceId,
-            businessDay: BusinessDay.day(for: paidAt, cutoffHour: settings.businessDayCutoffHour)
+            businessDay: BusinessDay.day(for: paidAt, cutoffHour: settings.businessDayCutoffHour),
+            tipCents: tip.cents
         ))
 
         enqueue(.settle, payload: CreateSettlementRequest(
@@ -205,7 +206,8 @@ final class LocalStore {
             tableNumber: tableNumber,
             lines: selections,
             amountCents: total.cents,
-            paidAt: paidAt
+            paidAt: paidAt,
+            tipCents: tip.cents
         ))
         save()
         return settlementId

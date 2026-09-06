@@ -66,6 +66,19 @@ struct DayReportView: View {
             }
             .padding(.vertical, 4)
             .accessibilityElement(children: .combine)
+
+            // Die große Zahl bleibt der Warenumsatz — nur so geht sie weiter
+            // mit der Kategorie-Aufschlüsselung zusammen.
+            if report.tipCents > 0 {
+                LabeledContent("Trinkgeld") {
+                    Text(report.tip.formatted)
+                        .font(.headline.monospacedDigit())
+                }
+                LabeledContent("Kassa gesamt") {
+                    Text(report.grandTotal.formatted)
+                        .font(.headline.monospacedDigit().bold())
+                }
+            }
         }
     }
 
@@ -115,6 +128,11 @@ struct DayReportView: View {
                             Text(settlement.paidAt.formatted(date: .omitted, time: .shortened))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if settlement.tipCents > 0 {
+                                Text("inkl. \(settlement.tip.formatted) Trinkgeld")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

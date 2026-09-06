@@ -114,13 +114,37 @@ public struct CreateSettlementRequest: Codable, Sendable {
     /// bei Abweichung ab — schützt vor veraltetem Client-Stand.
     public var amountCents: Int
     public var paidAt: Date
+    /// Aufrundung des Gastes. Steht bewusst neben `amountCents` und nicht darin,
+    /// damit die Nachrechnung am Server weiterhin die reine Zeilensumme prüft.
+    public var tipCents: Int
 
-    public init(id: UUID, tableNumber: Int, lines: [SettlementLineSelection], amountCents: Int, paidAt: Date) {
+    public init(
+        id: UUID,
+        tableNumber: Int,
+        lines: [SettlementLineSelection],
+        amountCents: Int,
+        paidAt: Date,
+        tipCents: Int = 0
+    ) {
         self.id = id
         self.tableNumber = tableNumber
         self.lines = lines
         self.amountCents = amountCents
         self.paidAt = paidAt
+        self.tipCents = tipCents
+    }
+
+    /// Die Offline-Queue legt diesen Request als rohes `Data` ab. Nach einem
+    /// App-Update muss eine alte, noch nicht gesendete Zahlung ohne `tipCents`
+    /// weiterhin dekodierbar sein — sonst bleibt sie für immer liegen.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.tableNumber = try container.decode(Int.self, forKey: .tableNumber)
+        self.lines = try container.decode([SettlementLineSelection].self, forKey: .lines)
+        self.amountCents = try container.decode(Int.self, forKey: .amountCents)
+        self.paidAt = try container.decode(Date.self, forKey: .paidAt)
+        self.tipCents = try container.decodeIfPresent(Int.self, forKey: .tipCents) ?? 0
     }
 }
 
@@ -133,6 +157,8 @@ public struct SettlementDTO: Codable, Hashable, Sendable, Identifiable {
     /// Betriebstag als `yyyy-MM-dd` — nicht der Kalendertag, siehe Cutoff.
     public var businessDay: String
     public var updatedSeq: Int
+    /// Getrennt vom Umsatz, damit `totalCents` weiter gegen die Zeilen aufgeht.
+    public var tipCents: Int
 
     public init(
         id: UUID,
@@ -141,7 +167,8 @@ public struct SettlementDTO: Codable, Hashable, Sendable, Identifiable {
         paidAt: Date,
         deviceId: String,
         businessDay: String,
-        updatedSeq: Int
+        updatedSeq: Int,
+        tipCents: Int = 0
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -150,9 +177,27 @@ public struct SettlementDTO: Codable, Hashable, Sendable, Identifiable {
         self.deviceId = deviceId
         self.businessDay = businessDay
         self.updatedSeq = updatedSeq
+        self.tipCents = tipCents
+    }
+
+    /// Toleranter Decode wie beim Request: ein Client mit älterem Stand darf
+    /// eine Antwort ohne `tipCents` nicht als kaputt ansehen.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.tableNumber = try container.decode(Int.self, forKey: .tableNumber)
+        self.totalCents = try container.decode(Int.self, forKey: .totalCents)
+        self.paidAt = try container.decode(Date.self, forKey: .paidAt)
+        self.deviceId = try container.decode(String.self, forKey: .deviceId)
+        self.businessDay = try container.decode(String.self, forKey: .businessDay)
+        self.updatedSeq = try container.decode(Int.self, forKey: .updatedSeq)
+        self.tipCents = try container.decodeIfPresent(Int.self, forKey: .tipCents) ?? 0
     }
 
     public var total: Money { Money(cents: totalCents) }
+    public var tip: Money { Money(cents: tipCents) }
+    /// Umsatz + Trinkgeld — was tatsächlich in der Kassa liegt.
+    public var grandTotal: Money { Money(cents: totalCents + tipCents) }
 }
 
 /// Antwortkörper bei HTTP 409 auf `POST /settlements`.
@@ -250,11 +295,13 @@ public struct DeviceDTO: Codable, Hashable, Sendable, Identifiable {
 
 public struct DayReportDTO: Codable, Sendable {
     public var businessDay: String
+    /// Reiner Warenumsatz — die Kategoriesummen gehen exakt darauf auf.
     public var totalCents: Int
     public var settlementCount: Int
     public var byCategory: [CategoryTotal]
     public var topArticles: [ArticleTotal]
     public var settlements: [SettlementDTO]
+    public var tipCents: Int
 
     public struct CategoryTotal: Codable, Hashable, Sendable {
         public var category: String
@@ -284,7 +331,8 @@ public struct DayReportDTO: Codable, Sendable {
         settlementCount: Int,
         byCategory: [CategoryTotal],
         topArticles: [ArticleTotal],
-        settlements: [SettlementDTO]
+        settlements: [SettlementDTO],
+        tipCents: Int = 0
     ) {
         self.businessDay = businessDay
         self.totalCents = totalCents
@@ -292,9 +340,26 @@ public struct DayReportDTO: Codable, Sendable {
         self.byCategory = byCategory
         self.topArticles = topArticles
         self.settlements = settlements
+        self.tipCents = tipCents
+    }
+
+    /// Toleranter Decode: ein Bericht von einem Server ohne Trinkgeld-Feld
+    /// bleibt lesbar.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.businessDay = try container.decode(String.self, forKey: .businessDay)
+        self.totalCents = try container.decode(Int.self, forKey: .totalCents)
+        self.settlementCount = try container.decode(Int.self, forKey: .settlementCount)
+        self.byCategory = try container.decode([CategoryTotal].self, forKey: .byCategory)
+        self.topArticles = try container.decode([ArticleTotal].self, forKey: .topArticles)
+        self.settlements = try container.decode([SettlementDTO].self, forKey: .settlements)
+        self.tipCents = try container.decodeIfPresent(Int.self, forKey: .tipCents) ?? 0
     }
 
     public var total: Money { Money(cents: totalCents) }
+    public var tip: Money { Money(cents: tipCents) }
+    /// Umsatz + Trinkgeld — was tatsächlich in der Kassa liegt.
+    public var grandTotal: Money { Money(cents: totalCents + tipCents) }
 }
 
 // MARK: - Fehler

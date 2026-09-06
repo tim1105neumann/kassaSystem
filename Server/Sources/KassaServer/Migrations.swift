@@ -71,3 +71,19 @@ struct CreateSchema: AsyncMigration {
         try await database.schema(Article.schema).delete()
     }
 }
+
+struct AddSettlementTip: AsyncMigration {
+    func prepare(on database: any Database) async throws {
+        // Der SQL-Default ist nötig, weil bestehende Kassiervorgänge sonst NULL
+        // in einer required-Spalte bekämen.
+        try await database.schema(Settlement.schema)
+            .field("tip_cents", .int, .required, .sql(.default(0)))
+            .update()
+    }
+
+    func revert(on database: any Database) async throws {
+        try await database.schema(Settlement.schema)
+            .deleteField("tip_cents")
+            .update()
+    }
+}

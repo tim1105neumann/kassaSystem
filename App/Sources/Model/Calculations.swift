@@ -114,3 +114,36 @@ enum ChangeCalculator {
         return candidates.sorted().prefix(6).map(Money.init(cents:))
     }
 }
+
+// MARK: - Trinkgeld
+
+enum TipError: Error, Equatable {
+    case belowTotal(missing: Money)
+}
+
+enum TipCalculator {
+    /// Trinkgeld aus dem Betrag, den der Gast nennt. Weniger als die Rechnung
+    /// ist ein Fehler, kein negatives Trinkgeld.
+    static func tip(total: Money, paid: Money) -> Result<Money, TipError> {
+        guard paid >= total else {
+            return .failure(.belowTotal(missing: total - paid))
+        }
+        return .success(paid - total)
+    }
+
+    /// Aufrundungsvorschläge: passend, nächste 50 Cent, nächster Euro,
+    /// +1 €, +2 € und der nächste Fünfer.
+    static func quickTotals(for total: Money) -> [Money] {
+        guard total.cents > 0 else { return [] }
+        let nextEuro = ((total.cents + 99) / 100) * 100
+        var candidates: Set<Int> = [total.cents, ((total.cents + 49) / 50) * 50, nextEuro]
+
+        candidates.insert(nextEuro + 100)
+        candidates.insert(nextEuro + 200)
+        // Der Fünfer muss über dem vollen Euro liegen — sonst wäre er bei 29,70
+        // wieder 30,00 und der Vorschlag doppelt.
+        candidates.insert((nextEuro / 500 + 1) * 500)
+
+        return candidates.sorted().prefix(5).map(Money.init(cents:))
+    }
+}

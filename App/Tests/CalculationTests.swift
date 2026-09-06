@@ -38,6 +38,39 @@ struct CalculationTests {
         #expect(amounts == amounts.sorted())
     }
 
+    @Test("31,00 € auf 29,70 € ergibt 1,30 € Trinkgeld")
+    func tipIsCorrect() {
+        let result = TipCalculator.tip(total: Money(cents: 2_970), paid: Money(cents: 3_100))
+        #expect(result == .success(Money(cents: 130)))
+    }
+
+    @Test("Genau die Rechnung ergibt kein Trinkgeld")
+    func exactAmountHasNoTip() {
+        let result = TipCalculator.tip(total: Money(cents: 2_970), paid: Money(cents: 2_970))
+        #expect(result == .success(.zero))
+    }
+
+    @Test("Weniger als die Rechnung ist ein Fehler, kein negatives Trinkgeld")
+    func belowTotalIsAnError() {
+        let result = TipCalculator.tip(total: Money(cents: 2_970), paid: Money(cents: 2_900))
+        #expect(result == .failure(.belowTotal(missing: Money(cents: 70))))
+
+        if case .success(let value) = result {
+            Issue.record("Es dürfte kein Trinkgeld geben, geliefert wurde \(value.formatted)")
+        }
+    }
+
+    @Test("Aufrundungsvorschläge für 29,70 €")
+    func quickTotals() {
+        let totals = TipCalculator.quickTotals(for: Money(cents: 2_970))
+        #expect(totals == [2_970, 3_000, 3_100, 3_200, 3_500].map(Money.init(cents:)))
+    }
+
+    @Test("Ohne Betrag gibt es nichts aufzurunden")
+    func quickTotalsForZero() {
+        #expect(TipCalculator.quickTotals(for: .zero).isEmpty)
+    }
+
     @Test("Zwischensumme der ausgewählten Mengen stimmt")
     func partialSelectionSubtotal() throws {
         let env = try TestEnvironment()

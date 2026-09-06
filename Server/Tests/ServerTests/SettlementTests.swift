@@ -104,6 +104,52 @@ struct SettlementTests {
         }
     }
 
+    @Test("Trinkgeld wird gespeichert, ohne den Umsatz zu verändern")
+    func settlementWithTip() async throws {
+        try await withKassaApp { harness in
+            try await harness.importPriceList()
+            let token = try await harness.login().token
+            let lineID = try await bookBerner(harness, token: token, table: 6, qty: 2)
+
+            let response = try await harness.send(.POST, APIRoute.settlements, token: token, body: CreateSettlementRequest(
+                id: UUID(), tableNumber: 6,
+                lines: [SettlementLineSelection(lineId: lineID, qty: 2)],
+                amountCents: 1240, paidAt: Date(),
+                tipCents: 130
+            ))
+            #expect(response.status == .ok)
+            let dto = try harness.decode(SettlementDTO.self, from: response)
+            #expect(dto.totalCents == 1240)
+            #expect(dto.tipCents == 130)
+            #expect(dto.grandTotal.cents == 1370)
+
+            let stored = try #require(try await Settlement.find(dto.id, on: harness.db))
+            #expect(stored.totalCents == 1240)
+            #expect(stored.tipCents == 130)
+        }
+    }
+
+    @Test("Ein negatives Trinkgeld wird abgelehnt")
+    func negativeTipRejected() async throws {
+        try await withKassaApp { harness in
+            try await harness.importPriceList()
+            let token = try await harness.login().token
+            let lineID = try await bookBerner(harness, token: token, table: 6, qty: 1)
+
+            let response = try await harness.send(.POST, APIRoute.settlements, token: token, body: CreateSettlementRequest(
+                id: UUID(), tableNumber: 6,
+                lines: [SettlementLineSelection(lineId: lineID, qty: 1)],
+                amountCents: 620, paidAt: Date(),
+                tipCents: -100
+            ))
+            #expect(response.status == .badRequest)
+            #expect(try await Settlement.query(on: harness.db).count() == 0)
+
+            let line = try #require(try await OrderLine.find(lineID, on: harness.db))
+            #expect(line.settlementId == nil)
+        }
+    }
+
     @Test("Ein falscher Betrag wird abgelehnt und lässt die Zeilen unangetastet")
     func amountMismatch() async throws {
         try await withKassaApp { harness in

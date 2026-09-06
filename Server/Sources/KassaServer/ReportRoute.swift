@@ -56,6 +56,7 @@ func dayReport(request: Request) async throws -> DayReportDTO {
             .map { DayReportDTO.CategoryTotal(category: $0.key, totalCents: $0.value) }
             .sorted { $0.category < $1.category },
         topArticles: topArticles,
-        settlements: try settlements.map { try $0.dto() }
+        settlements: try settlements.map { try $0.dto() },
+        tipCents: settlements.reduce(0) { $0 + $1.tipCents }
     )
 }

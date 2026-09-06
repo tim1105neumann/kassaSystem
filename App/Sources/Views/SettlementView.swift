@@ -16,7 +16,9 @@ struct SettlementView: View {
     @State private var stage: Stage = .select
     @State private var mode: Mode = .all
     @State private var selection = SettlementSelection()
+    @State private var paidText = ""
     @State private var givenText = ""
+    @FocusState private var paidFocused: Bool
     @FocusState private var givenFocused: Bool
 
     init(tableNumber: Int, path: Binding<NavigationPath>) {
@@ -34,11 +36,21 @@ struct SettlementView: View {
         mode == .all ? TableTotals.openTotal(of: lines) : selection.subtotal(over: lines)
     }
 
+    private var paid: Money? { Money(parsing: paidText) }
+
+    /// Ohne Eingabe im „Macht“-Feld zahlt der Gast einfach die Rechnung.
+    private var payable: Money { paid ?? amount }
+
+    private var tip: Result<Money, TipError>? {
+        guard let paid else { return nil }
+        return TipCalculator.tip(total: amount, paid: paid)
+    }
+
     private var given: Money? { Money(parsing: givenText) }
 
     private var change: Result<Money, ChangeError>? {
         guard let given else { return nil }
-        return ChangeCalculator.change(total: amount, given: given)
+        return ChangeCalculator.change(total: payable, given: given)
     }
 
     var body: some View {
@@ -102,6 +114,8 @@ struct SettlementView: View {
                         .lineLimit(1)
                 }
 
+                tipInput
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Gegeben")
                         .font(.headline)
@@ -113,13 +127,13 @@ struct SettlementView: View {
                         .accessibilityLabel("Gegebener Betrag")
 
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
-                        ForEach(ChangeCalculator.quickAmounts(for: amount), id: \.cents) { value in
+                        ForEach(ChangeCalculator.quickAmounts(for: payable), id: \.cents) { value in
                             Button {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 givenText = value.formattedPlain
                                 givenFocused = false
                             } label: {
-                                Text(value == amount ? String(localized: "passend") : value.formatted)
+                                Text(value == payable ? String(localized: "passend") : value.formatted)
                                     .font(.headline)
                                     .frame(maxWidth: .infinity, minHeight: 52)
                             }
@@ -131,6 +145,68 @@ struct SettlementView: View {
                 changeDisplay
             }
             .padding(16)
+        }
+    }
+
+    private var tipInput: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Macht")
+                    .font(.headline)
+                TextField(amount.formattedPlain, text: $paidText)
+                    .keyboardType(.decimalPad)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    .textFieldStyle(.roundedBorder)
+                    .focused($paidFocused)
+                    .accessibilityLabel("Betrag, den der Gast nennt")
+                tipDisplay
+            }
+
+            tipWarning
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
+                ForEach(TipCalculator.quickTotals(for: amount), id: \.cents) { value in
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        paidText = value.formattedPlain
+                        paidFocused = false
+                    } label: {
+                        Text(value == amount ? String(localized: "passend") : value.formatted)
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tipDisplay: some View {
+        if case .success(let value) = tip, value.cents > 0 {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Trinkgeld")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value.formatted)
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(.green)
+            }
+            .fixedSize()
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Trinkgeld \(value.formatted)")
+        }
+    }
+
+    @ViewBuilder
+    private var tipWarning: some View {
+        if case .failure = tip {
+            Label("Weniger als die Rechnung", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
         }
     }
 
@@ -195,6 +271,7 @@ struct SettlementView: View {
 
                 Button {
                     if stage == .select {
+                        paidFocused = false
                         givenFocused = false
                         stage = .pay
                     } else {
@@ -218,9 +295,9 @@ struct SettlementView: View {
         case .select:
             mode == .all ? lines.isEmpty : selection.isEmpty
         case .pay:
-            // Ohne Eingabe im Rückgeld-Feld darf trotzdem kassiert werden —
+            // Leere Felder sind erlaubt: kein Trinkgeld, kein Rückgeld —
             // nur ein zu kleiner eingegebener Betrag blockiert.
-            if case .failure = change { true } else { false }
+            if case .failure = tip { true } else if case .failure = change { true } else { false }
         }
     }
 
@@ -230,8 +307,11 @@ struct SettlementView: View {
             : selection.requestLines(over: lines)
         guard !selections.isEmpty else { return }
 
+        // `amount` bleibt die reine Warensumme, das Trinkgeld geht daneben mit.
+        let tipOrZero = if case .success(let value) = tip { value } else { Money.zero }
+
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        store.settle(tableNumber: tableNumber, selections: selections, total: amount)
+        store.settle(tableNumber: tableNumber, selections: selections, total: amount, tip: tipOrZero)
         model.syncSoon()
         path = NavigationPath()
     }

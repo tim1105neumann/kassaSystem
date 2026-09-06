@@ -33,6 +33,7 @@ func configure(_ app: Application, kassa: KassaConfig) async throws {
     }
 
     app.migrations.add(CreateSchema())
+    app.migrations.add(AddSettlementTip())
     try await app.autoMigrate()
 
     app.asyncCommands.use(ImportPricesCommand(), as: "import-prices")

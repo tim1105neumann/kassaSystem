@@ -109,6 +109,8 @@ final class Settlement: Model, @unchecked Sendable {
     @Field(key: "device_id") var deviceId: String
     @Field(key: "business_day") var businessDay: String
     @Field(key: "updated_seq") var updatedSeq: Int
+    /// Trinkgeld, getrennt vom Umsatz — `total_cents` bleibt die Zeilensumme.
+    @Field(key: "tip_cents") var tipCents: Int
 
     init() {}
 
@@ -119,7 +121,8 @@ final class Settlement: Model, @unchecked Sendable {
         paidAt: Date,
         deviceId: String,
         businessDay: String,
-        updatedSeq: Int
+        updatedSeq: Int,
+        tipCents: Int = 0
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -128,6 +131,7 @@ final class Settlement: Model, @unchecked Sendable {
         self.deviceId = deviceId
         self.businessDay = businessDay
         self.updatedSeq = updatedSeq
+        self.tipCents = tipCents
     }
 
     func dto() throws -> SettlementDTO {
@@ -138,7 +142,8 @@ final class Settlement: Model, @unchecked Sendable {
             paidAt: paidAt,
             deviceId: deviceId,
             businessDay: businessDay,
-            updatedSeq: updatedSeq
+            updatedSeq: updatedSeq,
+            tipCents: tipCents
         )
     }
 }

@@ -13,7 +13,8 @@ struct ReportTests {
         table: Int,
         article: ArticleDTO,
         qty: Int,
-        paidAt: Date
+        paidAt: Date,
+        tip: Int = 0
     ) async throws {
         let lineID = UUID()
         try await harness.book(
@@ -24,7 +25,8 @@ struct ReportTests {
             id: UUID(), tableNumber: table,
             lines: [SettlementLineSelection(lineId: lineID, qty: qty)],
             amountCents: article.priceCents * qty,
-            paidAt: paidAt
+            paidAt: paidAt,
+            tipCents: tip
         ))
         #expect(response.status == .ok)
     }
@@ -82,6 +84,36 @@ struct ReportTests {
             #expect(report.topArticles.map(\.name) == ["Bier 0,3 l", "Berner Würstel mit Gebäck"])
             #expect(report.topArticles.map(\.qty) == [5, 2])
             #expect(report.settlements.count == 2)
+        }
+    }
+
+    @Test("Trinkgeld wird eigens ausgewiesen, der Umsatz bleibt die Warensumme")
+    func tipsAreReportedSeparately() async throws {
+        try await withKassaApp(cutoffHour: 6) { harness in
+            try await harness.importPriceList()
+            let token = try await harness.login().token
+            let berner = try await harness.article(named: "Berner Würstel mit Gebäck", token: token)      // Speisen, 620
+            let bier = try await harness.article(named: "Bier 0,3 l", token: token)                        // Getraenke, 380
+            // Bewusst „jetzt": ein fixes Datum würde irgendwann aus der
+            // paidAt-Toleranz fallen und der Umsatz landete im falschen Tag.
+            let jetzt = Date()
+
+            try await settle(harness, token: token, table: 1, article: berner, qty: 2, paidAt: jetzt, tip: 130)
+            try await settle(harness, token: token, table: 2, article: bier, qty: 5, paidAt: jetzt, tip: 100)
+
+            let tag = BusinessDay.day(for: jetzt, cutoffHour: 6)
+            let report = try harness.decode(
+                DayReportDTO.self,
+                from: try await harness.send(.GET, "\(APIRoute.dayReport)?date=\(tag)", token: token)
+            )
+            #expect(report.totalCents == 2 * 620 + 5 * 380)
+            #expect(report.tipCents == 230)
+            #expect(report.grandTotal.cents == 3370)
+
+            // Die Kategorien müssen weiterhin exakt auf den Umsatz aufgehen —
+            // sonst wäre das Trinkgeld irgendwo in die Ware gerutscht.
+            #expect(report.byCategory.reduce(0) { $0 + $1.totalCents } == report.totalCents)
+            #expect(report.settlements.map(\.tipCents).reduce(0, +) == 230)
         }
     }
 

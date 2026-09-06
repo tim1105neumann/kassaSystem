@@ -25,12 +25,15 @@ func hilfe() -> String {
     """
     Küchenbon-Dienst
 
-      kuechenbon run                 Dienst starten (Endlosschleife, für launchd)
+      kuechenbon run [--dry-run]     Dienst starten (Endlosschleife, für launchd)
       kuechenbon once [--dry-run]    Genau einen Durchlauf, danach Ende
       kuechenbon testbon [--dry-run] Beispiel-Bon drucken (Zeichensatz und Breite prüfen)
 
       --config <pfad>                Andere Konfigurationsdatei als config.json neben dem Binary
       --dry-run                      Nicht drucken, Klartext auf den Bildschirm, Zustand bleibt unverändert
+                                     Mit "run" der Weg, ohne Drucker mitzulesen: der erste
+                                     Durchlauf ist der stumme Kaltstart, danach erscheint
+                                     jede neue Buchung auf dem Bildschirm.
     """
 }
 
@@ -44,10 +47,6 @@ func hauptprogramm() -> Int32 {
     }
 
     let trockenlauf = argumente.contains("--dry-run")
-    if trockenlauf, befehl == "run" {
-        FileHandle.standardError.write(Data("--dry-run gibt es nur für once und testbon.\n".utf8))
-        return 2
-    }
 
     let verzeichnis = programmVerzeichnis()
     var configPfad = verzeichnis + "/config.json"
@@ -86,7 +85,7 @@ func hauptprogramm() -> Int32 {
     // dann, wenn er sie in eine Datei umleitet. Nur der Dauerbetrieb spiegelt
     // ausschliesslich im Terminal: unter launchd zeigt stdout auf dieselbe Datei,
     // in die der Logger schreibt, dort stuende sonst jede Zeile doppelt.
-    let spiegeln = befehl == "run" ? isatty(STDOUT_FILENO) != 0 : true
+    let spiegeln = (befehl == "run" && !trockenlauf) ? isatty(STDOUT_FILENO) != 0 : true
     let log = Logger(path: verzeichnis + "/kuechenbon.log", mirrorToStdout: spiegeln)
 
     if befehl == "testbon" {

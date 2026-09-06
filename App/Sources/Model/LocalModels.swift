@@ -141,6 +141,9 @@ final class LocalSettlement {
     var businessDay: String
     var updatedSeq: Int
     var pendingLocal: Bool
+    /// Default nötig: das Schema ist unversioniert, nur mit Default migriert
+    /// SwiftData eine bestehende Datei leichtgewichtig.
+    var tipCents: Int = 0
 
     init(
         id: UUID,
@@ -150,7 +153,8 @@ final class LocalSettlement {
         deviceId: String,
         businessDay: String,
         updatedSeq: Int = 0,
-        pendingLocal: Bool = true
+        pendingLocal: Bool = true,
+        tipCents: Int = 0
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -160,6 +164,7 @@ final class LocalSettlement {
         self.businessDay = businessDay
         self.updatedSeq = updatedSeq
         self.pendingLocal = pendingLocal
+        self.tipCents = tipCents
     }
 
     convenience init(dto: SettlementDTO) {
@@ -171,7 +176,8 @@ final class LocalSettlement {
             deviceId: dto.deviceId,
             businessDay: dto.businessDay,
             updatedSeq: dto.updatedSeq,
-            pendingLocal: false
+            pendingLocal: false,
+            tipCents: dto.tipCents
         )
     }
 
@@ -183,9 +189,11 @@ final class LocalSettlement {
         businessDay = dto.businessDay
         updatedSeq = dto.updatedSeq
         pendingLocal = false
+        tipCents = dto.tipCents
     }
 
     var total: Money { Money(cents: totalCents) }
+    var tip: Money { Money(cents: tipCents) }
 }
 
 // MARK: - Offline-Queue

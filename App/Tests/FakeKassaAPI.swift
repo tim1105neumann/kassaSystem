@@ -136,7 +136,8 @@ actor FakeKassaAPI: KassaAPI {
             paidAt: request.paidAt,
             deviceId: "fake-device",
             businessDay: BusinessDay.day(for: request.paidAt, cutoffHour: 6),
-            updatedSeq: seq
+            updatedSeq: seq,
+            tipCents: request.tipCents
         )
         settlements[request.id] = settlement
         return settlement
@@ -151,7 +152,8 @@ actor FakeKassaAPI: KassaAPI {
             settlementCount: matching.count,
             byCategory: [],
             topArticles: [],
-            settlements: matching.sorted { $0.paidAt < $1.paidAt }
+            settlements: matching.sorted { $0.paidAt < $1.paidAt },
+            tipCents: matching.reduce(0) { $0 + $1.tipCents }
         )
     }
 

@@ -13,6 +13,7 @@ public protocol BonPrinter: AnyObject {
 public enum PrinterError: Error, LocalizedError {
     case lpNotStarted(String)
     case lpFailed(status: Int32, output: String)
+    case queueGestoppt(queue: String, grund: String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +24,11 @@ public enum PrinterError: Error, LocalizedError {
             return text.isEmpty
                 ? "lp ist mit Code \(status) fehlgeschlagen."
                 : "lp ist mit Code \(status) fehlgeschlagen: \(text)"
+        case .queueGestoppt(let queue, let grund):
+            return """
+                Die Druckerwarteschlange \(queue) ist angehalten (\(grund)). \
+                Es wird nichts gedruckt. Wieder freigeben mit: sudo cupsenable \(queue)
+                """
         }
     }
 }
@@ -37,7 +43,41 @@ public final class CUPSPrinter: BonPrinter {
         self.queue = queue
     }
 
+    /// IPP-Zustand 5 heisst „stopped“. Die Zahlen kommen aus dem Protokoll und
+    /// sind sprachunabhaengig — die Klartextmeldungen von `lpstat` sind es nicht.
+    /// Gibt den Grund zurueck, wenn die Warteschlange steht, sonst `nil`.
+    public static func gestoppt(lpoptionsAusgabe: String) -> String? {
+        let felder = lpoptionsAusgabe.split(whereSeparator: { $0 == " " || $0 == "\n" })
+        guard felder.contains(where: { $0 == "printer-state=5" }) else { return nil }
+        let grund = felder
+            .first { $0.hasPrefix("printer-state-reasons=") }?
+            .dropFirst("printer-state-reasons=".count)
+        return grund.map(String.init) ?? "Grund unbekannt"
+    }
+
+    /// Fragt CUPS nach dem Zustand der Warteschlange.
+    private func gestoppterGrund() -> String? {
+        let prozess = Process()
+        prozess.executableURL = URL(fileURLWithPath: "/usr/bin/lpoptions")
+        prozess.arguments = ["-p", queue]
+        let ausgabe = Pipe()
+        prozess.standardOutput = ausgabe
+        prozess.standardError = FileHandle.nullDevice
+        guard (try? prozess.run()) != nil else { return nil }
+        let daten = ausgabe.fileHandleForReading.readDataToEndOfFile()
+        prozess.waitUntilExit()
+        return Self.gestoppt(lpoptionsAusgabe: String(data: daten, encoding: .utf8) ?? "")
+    }
+
     public func print(_ job: BonJob, config: BonConfig) throws {
+        // `lp` meldet Erfolg, sobald der Auftrag eingereiht ist — nicht, wenn
+        // Papier herauskommt. Haelt CUPS die Warteschlange nach einem Fehler an
+        // (Standardverhalten), verschwänden Bons sonst lautlos: der Dienst
+        // vermerkt sie als gedruckt, die Kueche sieht nie einen Zettel.
+        if let grund = gestoppterGrund() {
+            throw PrinterError.queueGestoppt(queue: queue, grund: grund)
+        }
+
         let daten = BonRenderer.escPos(job, config: config)
 
         let prozess = Process()
