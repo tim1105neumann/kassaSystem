@@ -115,6 +115,7 @@ private struct TableTile: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     NavigationStack {
@@ -125,3 +126,4 @@ private struct TableTile: View {
             .modelContainer(sample.container)
     }
 }
+#endif

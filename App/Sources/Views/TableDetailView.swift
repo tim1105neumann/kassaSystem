@@ -140,6 +140,7 @@ private struct OrderLineRow: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     NavigationStack {
@@ -150,3 +151,4 @@ private struct OrderLineRow: View {
             .modelContainer(sample.container)
     }
 }
+#endif

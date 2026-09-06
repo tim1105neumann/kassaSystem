@@ -11,3 +11,4 @@ extension SyncResponse: @retroactive Content {}
 extension LoginResponse: @retroactive Content {}
 extension ServerConfigDTO: @retroactive Content {}
 extension DayReportDTO: @retroactive Content {}
+extension DeviceDTO: @retroactive Content {}

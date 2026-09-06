@@ -16,6 +16,7 @@ func routes(_ app: Application) throws {
     let api = app.grouped(DeviceAuthMiddleware())
     api.get(APIRoute.config.pathComponents, use: config)
     api.get(APIRoute.articles.pathComponents, use: articles)
+    api.get(APIRoute.devices.pathComponents, use: devices)
     api.get(APIRoute.sync.pathComponents, use: sync)
     api.post(APIRoute.orderLines.pathComponents, use: createOrderLines)
     api.post(APIRoute.orderLines.pathComponents + [":lineID", "void"], use: voidOrderLine)
@@ -74,6 +75,15 @@ private func articles(request: Request) async throws -> [ArticleDTO] {
     try await Article.query(on: request.db)
         .filter(\.$active == true)
         .sort(\.$sortOrder)
+        .all()
+        .map { try $0.dto() }
+}
+
+/// Für den Kellner-Namen auf dem Bon — z.B. „Kellner: iPhone Anna".
+@Sendable
+private func devices(request: Request) async throws -> [DeviceDTO] {
+    try await Device.query(on: request.db)
+        .sort(\.$name)
         .all()
         .map { try $0.dto() }
 }

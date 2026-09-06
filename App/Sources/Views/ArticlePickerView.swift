@@ -183,6 +183,7 @@ private struct ArticleButton: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     NavigationStack {
@@ -193,3 +194,4 @@ private struct ArticleButton: View {
             .modelContainer(sample.container)
     }
 }
+#endif

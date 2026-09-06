@@ -234,6 +234,18 @@ public struct ServerConfigDTO: Codable, Sendable {
     }
 }
 
+/// Geraetename fuer die Anzeige — der Kuechenbon zeigt damit, wer bestellt hat.
+/// Bewusst ohne Token-Hash: der verlaesst den Server nie.
+public struct DeviceDTO: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 // MARK: - Tagesabschluss
 
 public struct DayReportDTO: Codable, Sendable {

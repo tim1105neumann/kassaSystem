@@ -283,6 +283,7 @@ private struct PartialLineRow: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     NavigationStack {
@@ -293,3 +294,4 @@ private struct PartialLineRow: View {
             .modelContainer(sample.container)
     }
 }
+#endif

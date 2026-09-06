@@ -41,6 +41,7 @@ struct LoginView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     NavigationStack {
@@ -49,3 +50,4 @@ struct LoginView: View {
             .environment(sample.model.settings)
     }
 }
+#endif

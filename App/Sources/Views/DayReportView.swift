@@ -138,6 +138,7 @@ struct DayReportView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     DayReportView()
@@ -146,3 +147,4 @@ struct DayReportView: View {
         .environment(sample.model.settings)
         .modelContainer(sample.container)
 }
+#endif

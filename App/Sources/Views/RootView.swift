@@ -58,6 +58,7 @@ struct RootView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     RootView()
@@ -66,3 +67,4 @@ struct RootView: View {
         .environment(sample.model.settings)
         .modelContainer(sample.container)
 }
+#endif

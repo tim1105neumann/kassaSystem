@@ -171,6 +171,7 @@ struct SettingsView: View {
     }
 }
 
+#if DEBUG
 #Preview {
     let sample = PreviewData.make()
     SettingsView()
@@ -179,3 +180,4 @@ struct SettingsView: View {
         .environment(sample.model.settings)
         .modelContainer(sample.container)
 }
+#endif

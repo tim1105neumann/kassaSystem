@@ -161,6 +161,11 @@ final class Device: Model, @unchecked Sendable {
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
     }
+
+    /// Baut das DTO explizit aus id/name — token_hash darf die Antwort nie verlassen.
+    func dto() throws -> DeviceDTO {
+        DeviceDTO(id: try requireID(), name: name)
+    }
 }
 
 /// Eine einzige Zeile. Trägt den globalen Sequenzzähler und die Katalogversion —

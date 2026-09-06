@@ -276,8 +276,62 @@ Danach von außen prüfen, am besten vom Handy im Mobilfunknetz:
 curl https://kassa.viennax.at/config
 ```
 
-Wenn eine Antwort kommt und `curl` **nicht** über das Zertifikat meckert,
-steht der Server.
+Die richtige Antwort sieht so aus:
+
+```json
+{"reason":"Kein Bearer-Token","error":true}
+```
+
+**Das ist der Erfolgsfall, kein Fehler.** `/config` ist geschützt, und ohne
+Anmeldung weist der Server die Anfrage genau so zurück. Entscheidend ist,
+dass diese Meldung überhaupt ankommt: Sie stammt vom Kassa-Server, nicht von
+nginx — der ganze Weg von außen steht also.
+
+Meckert `curl` dagegen über das Zertifikat, oder kommt eine HTML-Seite mit
+`404 Not Found` von nginx zurück, dann siehe Abschnitt 9.
+
+Gegenprobe, dass auch die Anmeldung arbeitet (absichtlich falsches Passwort):
+
+```bash
+curl -sS -X POST https://kassa.viennax.at/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"absichtlich-falsch","deviceName":"Pruefung"}'
+```
+
+Erwartete Antwort: `{"error":true,"reason":"Falsches Passwort"}`.
+
+### Schritt 5b — WebSocket prüfen (nicht überspringen)
+
+Das ist der wichtigste Test des ganzen Setups, weil sein Ausfall nichts
+sichtbar kaputt macht: Ohne WebSocket lässt sich weiterhin einwandfrei
+kassieren, aber die Geräte aktualisieren sich nicht mehr gegenseitig. Das
+fällt erst im Betrieb auf, wenn zwei Leute denselben Tisch bearbeiten.
+
+Erst ein Anmelde-Token holen (das echte Passwort aus der `.env` einsetzen):
+
+```bash
+TOKEN=$(curl -sS -X POST https://kassa.viennax.at/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"DEIN-PASSWORT","deviceName":"Pruefung"}' \
+  | sed 's/.*"token":"\([^"]*\)".*/\1/')
+echo "$TOKEN"
+```
+
+Dann den Upgrade auf WebSocket versuchen:
+
+```bash
+curl -sSi -N -H "Authorization: Bearer $TOKEN" \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" \
+  https://kassa.viennax.at/ws | head -3
+```
+
+| Antwort | Bedeutung |
+|---|---|
+| `101 Switching Protocols` | Alles richtig — die Live-Aktualisierung funktioniert. |
+| `200` oder `400` | nginx reicht den Upgrade nicht durch. Siehe Abschnitt 9, WebSocket. |
+| `401` | Das Token stimmt nicht — den Schritt davor wiederholen. |
 
 Die Erneuerung läuft ab jetzt automatisch. Kontrollieren lässt sie sich mit:
 
@@ -330,6 +384,13 @@ Es ist nichts von Hand zu tun.
 ---
 
 ## 5. Update auf eine neue Version
+
+> **Hinweis für den Küchenbon-Dienst:** Sobald der Server um den Endpunkt
+> `GET /devices` ergänzt wurde (für den Küchenbon-Dienst auf dem alten Mac
+> in der Küche, siehe `PrintService/README.md`), muss diese Version einmal
+> neu gebaut werden: `docker compose build && docker compose up -d`. Das
+> am besten außerhalb der Öffnungszeiten machen, weil der Container dabei
+> kurz durchstartet.
 
 ```bash
 cd /opt/kassa/deploy
@@ -511,6 +572,65 @@ gegolten hat. Sonst würden alte Tagesabschlüsse nachträglich andere Summen
 ergeben.
 
 ---
+
+## 8b. Ein Gerät aussperren (Handy verloren, Aushilfe weg)
+
+Alle Geräte melden sich mit demselben Passwort aus der `.env` an. Danach
+bekommt jedes Gerät ein eigenes, dauerhaftes Token — deshalb gilt:
+
+> **Das Passwort zu ändern sperrt bereits angemeldete Geräte NICHT aus.**
+> Ein neues Passwort verhindert nur neue Anmeldungen. Ein Handy, das sich
+> einmal angemeldet hat, behält seinen Zugang, bis es hier gelöscht wird.
+
+Muss ein Gerät wirklich raus, geht das direkt in der Datenbank.
+
+Das läuft über dasselbe `sqlite3` auf dem Server, das auch `backup.sh`
+benutzt (im Container ist es nicht installiert). Zuerst den Pfad zur
+Datenbank ermitteln:
+
+```bash
+DB="$(sudo docker volume inspect --format '{{ .Mountpoint }}' kassa_data)/kassa.sqlite"
+```
+
+**1. Nachsehen, welche Geräte angemeldet sind:**
+
+```bash
+sudo sqlite3 -header -column "$DB" ".timeout 15000" \
+  "SELECT name, datetime(last_seen_at,'localtime') AS zuletzt FROM devices ORDER BY last_seen_at DESC;"
+```
+
+**2. Das betroffene Gerät löschen** (Name aus der Liste oben einsetzen):
+
+```bash
+sudo sqlite3 "$DB" ".timeout 15000" \
+  "DELETE FROM devices WHERE name = 'Schank';"
+```
+
+Das `.timeout` ist kein Zierrat: Der Server schreibt parallel weiter, und
+ohne Wartezeit bricht der Befehl bei gleichzeitigem Zugriff einfach ab.
+
+Die Sperre wirkt sofort, ein Neustart ist nicht nötig. Auf dem betroffenen
+Handy verlangt die App beim nächsten Zugriff wieder das Passwort.
+
+**3. Anschließend das Passwort wechseln,** sonst meldet sich dasselbe Gerät
+einfach neu an:
+
+```bash
+nano .env                 # KASSA_PASSWORD neu setzen
+docker compose up -d
+```
+
+Danach müssen sich **alle** verbliebenen Geräte einmal neu anmelden.
+
+### Zwei Dinge, die dabei zu beachten sind
+
+- **Bereits gebuchte Umsätze bleiben erhalten.** Bestellungen und
+  Kassiervorgänge speichern die Geräte-ID als Text und hängen nicht am
+  Eintrag in dieser Tabelle. In der Konfliktmeldung steht danach aber nur
+  noch die ID statt des Namens.
+- **Noch nicht übertragene Buchungen auf dem gesperrten Handy sind verloren.**
+  Sperre deshalb, wenn möglich, erst nachdem das Gerät zuletzt online war —
+  in der Liste oben steht dafür die Spalte `zuletzt`.
 
 ## 9. Wenn's nicht geht
 

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "KassaShared",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v11), .iOS(.v17)],
     products: [
         .library(name: "KassaShared", targets: ["KassaShared"])
     ],

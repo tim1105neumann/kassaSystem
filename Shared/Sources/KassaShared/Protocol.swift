@@ -25,6 +25,7 @@ public enum APIRoute {
     public static let orderLines = "orders/lines"
     public static let settlements = "settlements"
     public static let dayReport = "reports/day"
+    public static let devices = "devices"
     public static let webSocket = "ws"
 
     public static func voidLine(_ id: UUID) -> String { "orders/lines/\(id.uuidString)/void" }
