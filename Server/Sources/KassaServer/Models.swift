@@ -148,6 +148,66 @@ final class Settlement: Model, @unchecked Sendable {
     }
 }
 
+final class PrintRequest: Model, @unchecked Sendable {
+    static let schema = "print_requests"
+
+    @ID(custom: .id, generatedBy: .user) var id: UUID?
+    @Field(key: "table_number") var tableNumber: Int
+    /// Die Positionen sind ein eingefrorener Schnappschuss: sie werden nie
+    /// einzeln abgefragt, gefiltert oder sortiert, sondern nur als Ganzes
+    /// gedruckt. Eine zweite Tabelle mit Fremdschlüssel wäre für Daten, die
+    /// einmal auf Papier gehen und danach nur noch Beleg sind, unverhältnismäßig.
+    @Field(key: "items_json") var itemsJSON: String
+    @Field(key: "total_cents") var totalCents: Int
+    @Field(key: "requested_at") var requestedAt: Date
+    @Field(key: "device_id") var deviceId: String
+    @Field(key: "updated_seq") var updatedSeq: Int
+
+    init() {}
+
+    init(
+        id: UUID,
+        tableNumber: Int,
+        items: [PrintRequestDTO.Item],
+        totalCents: Int,
+        requestedAt: Date,
+        deviceId: String,
+        updatedSeq: Int
+    ) throws {
+        self.id = id
+        self.tableNumber = tableNumber
+        self.itemsJSON = try Self.encodeItems(items)
+        self.totalCents = totalCents
+        self.requestedAt = requestedAt
+        self.deviceId = deviceId
+        self.updatedSeq = updatedSeq
+    }
+
+    func dto() throws -> PrintRequestDTO {
+        PrintRequestDTO(
+            id: try requireID(),
+            tableNumber: tableNumber,
+            items: try Self.decodeItems(itemsJSON),
+            totalCents: totalCents,
+            requestedAt: requestedAt,
+            deviceId: deviceId,
+            updatedSeq: updatedSeq
+        )
+    }
+
+    // Kodieren und Dekodieren stehen bewusst nebeneinander, damit die Symmetrie
+    // nicht auseinanderdriftet. KassaJSON bleibt außen vor: das ist die
+    // Verabredung für die Leitung zwischen App und Server, der Blob dagegen
+    // Datenbank-Interna und liest sich nur selbst wieder ein.
+    private static func encodeItems(_ items: [PrintRequestDTO.Item]) throws -> String {
+        String(decoding: try JSONEncoder().encode(items), as: UTF8.self)
+    }
+
+    private static func decodeItems(_ json: String) throws -> [PrintRequestDTO.Item] {
+        try JSONDecoder().decode([PrintRequestDTO.Item].self, from: Data(json.utf8))
+    }
+}
+
 final class Device: Model, @unchecked Sendable {
     static let schema = "devices"
 

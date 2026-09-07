@@ -17,10 +17,14 @@ final class TestServer: KassaServerAccess {
     var antwort: SyncResponse
     var katalog: [ArticleDTO]
     var geraete: [DeviceDTO]
+    var druckauftraege: [PrintRequestDTO] = []
+    /// Steht für einen Server, der die Druckaufträge gerade nicht herausrückt.
+    var druckauftraegeFehler: Error?
 
     private(set) var artikelAufrufe = 0
     private(set) var geraeteAufrufe = 0
     private(set) var syncAufrufe = 0
+    private(set) var druckauftragSeit: [Int] = []
 
     init(
         antwort: SyncResponse,
@@ -46,6 +50,12 @@ final class TestServer: KassaServerAccess {
         syncAufrufe += 1
         return antwort
     }
+
+    func printRequests(since: Int) throws -> [PrintRequestDTO] {
+        druckauftragSeit.append(since)
+        if let druckauftraegeFehler { throw druckauftraegeFehler }
+        return druckauftraege
+    }
 }
 
 final class TestDrucker: BonPrinter {
@@ -58,7 +68,9 @@ final class TestDrucker: BonPrinter {
     }
 
     func print(_ job: BonJob, config: BonConfig) throws {
-        if job.bonNumber == scheitertBeiBon { throw PapierLeer() }
+        // Aufstellungen haben keine Nummer; ohne `if let` verglichen sich hier
+        // zwei `nil` und jede Aufstellung scheiterte.
+        if let nummer = job.bonNumber, nummer == scheitertBeiBon { throw PapierLeer() }
         gedruckt.append(job)
     }
 }
@@ -271,4 +283,78 @@ struct ServiceTests {
         #expect(dienst.runOnce(now: jetzt) == true)
         #expect(FileManager.default.fileExists(atPath: zustandsPfad) == false)
     }
+
+    @Test("Die Aufstellung kommt erst nach dem Küchenbon und verbraucht keine Bonnummer")
+    func aufstellungNachKuechenbon() throws {
+        let jetzt = wienerZeit(6, 19, 0)
+        let server = TestServer(antwort: syncAntwort([zeile(Katalog.krainer, tisch: 7, createdAt: jetzt)]))
+        let auftrag = druckauftrag(tisch: 7, requestedAt: jetzt)
+        server.druckauftraege = [auftrag]
+        let drucker = TestDrucker()
+        let zustandsPfad = testPfad("state.json")
+
+        let dienst = Service(
+            config: testConfig,
+            state: PrintState(lastSeq: 10, nextBonNumber: 1),
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+        #expect(dienst.runOnce(now: jetzt) == true)
+
+        // Kein Küchenbon darf hinter einem Gast-Zettel warten.
+        #expect(drucker.gedruckt.map(\.kind) == [.order, .overview])
+        #expect(drucker.gedruckt[1].deviceName == "iPhone Anna")
+        #expect(drucker.gedruckt[1].totalCents == 1240)
+        // Gefragt wird mit dem Stand von vor dem Durchlauf: ein Auftrag zwischen
+        // /sync und dieser Abfrage käme mit dem neuen Stand nie an.
+        #expect(server.druckauftragSeit == [10])
+
+        let gesichert = try PrintState.load(from: zustandsPfad)
+        #expect(gesichert.printRequests[auftrag.id] == jetzt)
+        #expect(gesichert.nextBonNumber == 2)
+        #expect(gesichert.lastSeq == 99)
+
+        // Derselbe Auftrag kommt im nächsten Delta erneut — und bleibt liegen.
+        server.antwort = syncAntwort([], maxSeq: 120)
+        let zweiter = Service(
+            config: testConfig,
+            state: gesichert,
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+        #expect(zweiter.runOnce(now: jetzt.addingTimeInterval(30)) == true)
+        #expect(drucker.gedruckt.count == 2)
+    }
+
+    @Test("Ein Fehler beim Holen der Druckaufträge bricht den Durchlauf nicht ab")
+    func aufstellungFehlerBrichtNichtAb() throws {
+        let jetzt = wienerZeit(6, 19, 0)
+        let bestellung = zeile(Katalog.krainer, tisch: 7, createdAt: jetzt)
+        let server = TestServer(antwort: syncAntwort([bestellung]))
+        server.druckauftraegeFehler = HTTPError.timedOut
+        let drucker = TestDrucker()
+        let zustandsPfad = testPfad("state.json")
+
+        let dienst = Service(
+            config: testConfig,
+            state: PrintState(lastSeq: 10, nextBonNumber: 1),
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+
+        // Das Essen wird trotzdem gekocht.
+        #expect(dienst.runOnce(now: jetzt) == true)
+        #expect(drucker.gedruckt.map(\.kind) == [.order])
+
+        let gesichert = try PrintState.load(from: zustandsPfad)
+        #expect(gesichert.lines[bestellung.id]?.status == .printed)
+        #expect(gesichert.lastSeq == 99)
+    }
 }
+

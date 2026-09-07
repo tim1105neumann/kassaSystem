@@ -273,4 +273,97 @@ struct BonPlannerTests {
         ])
         #expect(ergebnis.jobs[0].time == jetzt)
     }
+
+    // MARK: - Aufstellungen
+
+    @Test("Eine frische Anforderung ergibt eine Aufstellung mit Preisen, Summe und Fußzeile")
+    func aufstellungMitPreisen() {
+        let jetzt = wienerZeit(6, 19, 42)
+        var config = testConfig
+        config.footerText = "Der Reinerlös geht an die Feuerwehr."
+        let auftrag = druckauftrag(tisch: 7, positionen: [
+            PrintRequestDTO.Item(name: "Käsekrainer mit Gebäck", qty: 2, unitPriceCents: 620),
+            PrintRequestDTO.Item(name: "Bier, Radler 0,5 l", qty: 3, unitPriceCents: 440)
+        ], requestedAt: jetzt)
+
+        let ergebnis = planenAufstellungen([auftrag], config: config, now: jetzt)
+
+        #expect(ergebnis.jobs.count == 1)
+        let zettel = ergebnis.jobs[0]
+        #expect(zettel.kind == .overview)
+        #expect(zettel.tableNumber == 7)
+        #expect(zettel.time == jetzt)
+        #expect(zettel.deviceName == "iPhone Anna")
+        #expect(zettel.items == [
+            BonJob.Item(qty: 2, name: "Käsekrainer mit Gebäck", unitPriceCents: 620),
+            BonJob.Item(qty: 3, name: "Bier, Radler 0,5 l", unitPriceCents: 440)
+        ])
+        #expect(zettel.totalCents == 2560)
+        #expect(zettel.footerText == "Der Reinerlös geht an die Feuerwehr.")
+        // Der Druck steht noch aus — vermerkt wird erst danach, im Dienst.
+        #expect(ergebnis.state.printRequests.isEmpty)
+    }
+
+    @Test("Nach fünf Minuten ist die Aufstellung wertlos und wird mit einer Warnung verworfen")
+    func aufstellungZuAlt() {
+        let jetzt = wienerZeit(6, 19, 42)
+        let auftrag = druckauftrag(tisch: 7, requestedAt: jetzt.addingTimeInterval(-6 * 60))
+
+        let ergebnis = planenAufstellungen([auftrag], now: jetzt)
+
+        #expect(ergebnis.jobs.isEmpty)
+        #expect(ergebnis.state.printRequests[auftrag.id] == jetzt)
+        #expect(ergebnis.warnings.count == 1)
+        #expect(ergebnis.warnings[0].contains("Tisch 7"))
+        #expect(ergebnis.warnings[0].contains("5 Minuten"))
+
+        // Knapp darunter wird noch gedruckt.
+        let knapp = druckauftrag(tisch: 7, requestedAt: jetzt.addingTimeInterval(-4 * 60))
+        #expect(planenAufstellungen([knapp], now: jetzt).jobs.count == 1)
+    }
+
+    @Test("Ein bereits gedruckter Auftrag wird nach einem Neustart nicht erneut gedruckt")
+    func aufstellungNurEinmal() {
+        let jetzt = wienerZeit(6, 19, 42)
+        let auftrag = druckauftrag(tisch: 7, requestedAt: jetzt)
+        #expect(planenAufstellungen([auftrag], now: jetzt).jobs.count == 1)
+
+        // Wie nach einem Neustart: derselbe Auftrag steht wieder im Delta,
+        // der Zustand weiß aber, dass der Zettel schon aus dem Drucker kam.
+        let state = PrintState(printRequests: [auftrag.id: jetzt])
+        let zweit = planenAufstellungen([auftrag], state: state, now: jetzt.addingTimeInterval(30))
+
+        #expect(zweit.jobs.isEmpty)
+        #expect(zweit.warnings.isEmpty)
+        #expect(zweit.state.printRequests[auftrag.id] == jetzt)
+    }
+
+    @Test("Mit printOverviews: false wird nichts gedruckt, der Auftrag gilt trotzdem als erledigt")
+    func aufstellungAbgeschaltet() {
+        let jetzt = wienerZeit(6, 19, 42)
+        var config = testConfig
+        config.printOverviews = false
+        let auftrag = druckauftrag(tisch: 7, requestedAt: jetzt)
+
+        let ergebnis = planenAufstellungen([auftrag], config: config, now: jetzt)
+
+        #expect(ergebnis.jobs.isEmpty)
+        #expect(ergebnis.warnings.isEmpty)
+        // Ohne Vermerk stünde derselbe Auftrag in jedem weiteren Delta.
+        #expect(ergebnis.state.printRequests[auftrag.id] == jetzt)
+    }
+
+    @Test("Aufstellungen verbrauchen keine Bonnummer")
+    func aufstellungOhneBonnummer() {
+        let jetzt = wienerZeit(6, 19, 42)
+        let ergebnis = planenAufstellungen([
+            druckauftrag(tisch: 7, requestedAt: jetzt),
+            druckauftrag(tisch: 8, requestedAt: jetzt)
+        ], state: PrintState(nextBonNumber: 47), now: jetzt)
+
+        #expect(ergebnis.jobs.count == 2)
+        #expect(ergebnis.jobs.allSatisfy { $0.bonNumber == nil })
+        // Eine Lücke in der Bonfolge bedeutet in der Küche „Bon verloren“.
+        #expect(ergebnis.state.nextBonNumber == 47)
+    }
 }

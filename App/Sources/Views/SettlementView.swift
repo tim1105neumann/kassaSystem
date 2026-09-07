@@ -12,10 +12,12 @@ struct SettlementView: View {
 
     private enum Stage { case select, pay }
     private enum Mode: Hashable { case all, partial }
+    private enum PrintState { case idle, sending, done, failed(String) }
 
     @State private var stage: Stage = .select
     @State private var mode: Mode = .all
     @State private var selection = SettlementSelection()
+    @State private var printState: PrintState = .idle
     @State private var paidText = ""
     @State private var givenText = ""
     @FocusState private var paidFocused: Bool
@@ -34,6 +36,14 @@ struct SettlementView: View {
 
     private var amount: Money {
         mode == .all ? TableTotals.openTotal(of: lines) : selection.subtotal(over: lines)
+    }
+
+    /// Kassieren und Aufstellung müssen dasselbe zeigen — beide leiten die
+    /// Positionen hier ab.
+    private var selections: [SettlementLineSelection] {
+        mode == .all
+            ? lines.map { SettlementLineSelection(lineId: $0.id, qty: $0.qty) }
+            : selection.requestLines(over: lines)
     }
 
     private var paid: Money? { Money(parsing: paidText) }
@@ -255,9 +265,29 @@ struct SettlementView: View {
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                 }
+                printFeedback
             }
 
             HStack(spacing: 12) {
+                if stage == .select {
+                    Button {
+                        printOverview()
+                    } label: {
+                        Group {
+                            if isPrinting {
+                                ProgressView()
+                            } else {
+                                Label("Aufstellung", systemImage: "printer")
+                            }
+                        }
+                        .font(.title3.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 60)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isPrimaryDisabled || isPrinting)
+                    .accessibilityLabel("Aufstellung zum Nachrechnen drucken")
+                }
+
                 if stage == .pay {
                     Button {
                         stage = .select
@@ -301,10 +331,55 @@ struct SettlementView: View {
         }
     }
 
+    @ViewBuilder
+    private var printFeedback: some View {
+        switch printState {
+        case .idle, .sending:
+            EmptyView()
+        case .done:
+            Label("Aufstellung liegt in der Küche", systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .foregroundStyle(.green)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+        }
+    }
+
+    private var isPrinting: Bool {
+        if case .sending = printState { true } else { false }
+    }
+
+    /// Der Zettel geht direkt zum Server, nicht über die Offline-Queue: er wird
+    /// sofort in der Küche gebraucht, eine stille Nachlieferung wäre wertlos.
+    /// Ohne Netz sieht der Kellner deshalb lieber gleich eine Meldung.
+    private func printOverview() {
+        let requested = selections
+        guard !requested.isEmpty else { return }
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        printState = .sending
+        Task {
+            let failure = await model.printOverview(tableNumber: tableNumber, selections: requested)
+            let feedback = UINotificationFeedbackGenerator()
+            if let failure {
+                feedback.notificationOccurred(.error)
+                printState = .failed(failure)
+            } else {
+                feedback.notificationOccurred(.success)
+                printState = .done
+            }
+        }
+    }
+
     private func confirm() {
-        let selections: [SettlementLineSelection] = mode == .all
-            ? lines.map { SettlementLineSelection(lineId: $0.id, qty: $0.qty) }
-            : selection.requestLines(over: lines)
         guard !selections.isEmpty else { return }
 
         // `amount` bleibt die reine Warensumme, das Trinkgeld geht daneben mit.

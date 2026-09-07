@@ -1,6 +1,13 @@
 import Foundation
+import KassaShared
 
 public enum BonRenderer {
+
+    /// Fest im Code und nicht in der Konfiguration: dass die Aufstellung keine
+    /// Rechnung ist, darf sich niemand am Küchen-Mac wegkonfigurieren können.
+    /// Ohne Paragraphenzeichen — das fehlt in CP437 und käme als „?“ heraus.
+    private static let hinweis = "Diese Aufstellung dient ausschließlich der "
+        + "Nachvollziehbarkeit des Rechnungsbetrages und ist keine Rechnung."
 
     /// Eine Zeile des Bons. Doppelt große Zeilen haben nur die halbe
     /// Spaltenzahl zur Verfügung — das muss schon beim Zentrieren stimmen,
@@ -52,19 +59,52 @@ public enum BonRenderer {
         case .cancellation:
             rows.append(Row(centered("*** " + spacedOut("STORNO") + " ***", in: headWidth), doubleSize: true))
             rows.append(Row(centered("TISCH \(job.tableNumber)", in: headWidth), doubleSize: true))
+        case .overview:
+            // Bewusst nicht im „TISCH n“-Format der Küchenbons: der Zettel liegt
+            // in der Küche zwischen echten Bons, und der Koch darf ihn nicht für
+            // eine Bestellung halten, die noch zu kochen wäre.
+            rows.append(Row(centered(spacedOut("AUFSTELLUNG"), in: headWidth), doubleSize: true))
+            rows.append(Row(centered("Tisch \(job.tableNumber)", in: headWidth), doubleSize: true))
         }
 
         rows.append(Row(String(repeating: "=", count: width)))
-        rows.append(Row(spread(left: "Bon \(job.bonNumber)", right: timestamp(job.time), in: width)))
-        if let deviceName = job.deviceName {
-            rows.append(Row("Kellner: \(deviceName)"))
+        if let bonNumber = job.bonNumber {
+            rows.append(Row(spread(left: "Bon \(bonNumber)", right: timestamp(job.time), in: width)))
+            if let deviceName = job.deviceName {
+                rows.append(Row("Kellner: \(deviceName)"))
+            }
+        } else if let deviceName = job.deviceName {
+            // Ohne Bonnummer ist die Zeile frei — und der Kellner muss trotzdem
+            // draufstehen, damit der Zettel in der Küche zuordenbar bleibt.
+            // Auf schmalem Papier bekommt er eine eigene, statt über den Rand
+            // zu laufen.
+            let zeit = timestamp(job.time)
+            let kellner = "Kellner: \(deviceName)"
+            if zeit.count + kellner.count < width {
+                rows.append(Row(spread(left: zeit, right: kellner, in: width)))
+            } else {
+                rows.append(Row(zeit))
+                rows.append(Row(kellner))
+            }
+        } else {
+            rows.append(Row(timestamp(job.time)))
         }
         rows.append(Row(String(repeating: "-", count: width)))
 
         for item in job.items {
             let prefix = String(format: "%2dx  ", item.qty)
-            for (index, part) in wrapped(item.name, to: width - prefix.count).enumerated() {
-                rows.append(Row(index == 0 ? prefix + part : String(repeating: " ", count: prefix.count) + part))
+            let betrag = item.unitPriceCents.map { Money(cents: $0 * item.qty).formattedPlain }
+            let teile = wrapped(item.name, to: width - prefix.count - (betrag.map { $0.count + 2 } ?? 0))
+            for (index, part) in teile.enumerated() {
+                let links = index == 0 ? prefix + part : String(repeating: " ", count: prefix.count) + part
+                // Der Betrag gehört auf die letzte Zeile der Position: bei einem
+                // umgebrochenen Namen sähe er sonst aus, als zählte er nur für
+                // die erste Hälfte.
+                if let betrag, index == teile.count - 1 {
+                    rows.append(Row(spread(left: links, right: betrag, in: width)))
+                } else {
+                    rows.append(Row(links))
+                }
             }
         }
 
@@ -72,7 +112,33 @@ public enum BonRenderer {
         if job.kind == .cancellation, !job.originalBonNumbers.isEmpty {
             rows.append(Row("(war auf Bon \(job.originalBonNumbers.map(String.init).joined(separator: ", ")))"))
         }
+        if job.kind == .overview {
+            rows.append(contentsOf: abschluss(for: job, width: width, headWidth: headWidth))
+        }
         return rows
+    }
+
+    /// Summe und Hinweistext. `EUR` statt `€`: das Eurozeichen fehlt in CP437
+    /// und käme als „?“ aus dem Drucker (siehe CP437.swift).
+    private static func abschluss(for job: BonJob, width: Int, headWidth: Int) -> [Row] {
+        let summe = Money(cents: job.totalCents ?? 0).formattedPlain
+        var rows: [Row] = [
+            Row(""),
+            Row(spread(left: "SUMME", right: "\(summe) EUR", in: headWidth), doubleSize: true),
+            Row(""),
+            Row(String(repeating: "=", count: width))
+        ]
+        rows.append(contentsOf: eingerueckt(hinweis, width: width))
+        if let footerText = job.footerText, !footerText.isEmpty {
+            rows.append(Row(""))
+            rows.append(contentsOf: eingerueckt(footerText, width: width))
+        }
+        rows.append(Row(String(repeating: "=", count: width)))
+        return rows
+    }
+
+    private static func eingerueckt(_ text: String, width: Int) -> [Row] {
+        wrapped(text, to: width - 2).map { Row("  " + $0) }
     }
 
     /// „TISCH" wird zu „T I S C H" — gesperrt liest sich der Kopf auf dem

@@ -221,6 +221,75 @@ public struct SettlementConflictDTO: Codable, Sendable {
     }
 }
 
+// MARK: - Druckauftrag
+
+public struct CreatePrintRequestRequest: Codable, Hashable, Sendable {
+    /// Vom Client vergeben — macht das Anlegen idempotent, auch wenn der Kellner
+    /// den Knopf zweimal drückt oder die Offline-Queue nachliefert.
+    public var id: UUID
+    public var tableNumber: Int
+    /// Dieselbe Auswahl wie beim Kassieren — die Aufstellung zeigt genau das,
+    /// was gleich bezahlt würde.
+    public var lines: [SettlementLineSelection]
+    public var requestedAt: Date
+
+    public init(id: UUID, tableNumber: Int, lines: [SettlementLineSelection], requestedAt: Date) {
+        self.id = id
+        self.tableNumber = tableNumber
+        self.lines = lines
+        self.requestedAt = requestedAt
+    }
+}
+
+/// Was der Druckdienst bekommt. Ausdrücklich kein Beleg, sondern nur eine
+/// Aufstellung zum Nachrechnen — deshalb ohne Betriebstag und Steuerfelder.
+public struct PrintRequestDTO: Codable, Hashable, Sendable, Identifiable {
+    public var id: UUID
+    public var tableNumber: Int
+    public var items: [Item]
+    public var totalCents: Int
+    public var requestedAt: Date
+    public var deviceId: String
+    public var updatedSeq: Int
+
+    /// Name und Preis löst der Server aus den Zeilen auf und friert sie hier ein,
+    /// wie bei `OrderLineDTO.nameSnapshot`: der Ausdruck muss zeigen, was gebucht
+    /// wurde, nicht was der Katalog heute sagt.
+    public struct Item: Codable, Hashable, Sendable {
+        public var name: String
+        public var qty: Int
+        public var unitPriceCents: Int
+
+        public init(name: String, qty: Int, unitPriceCents: Int) {
+            self.name = name
+            self.qty = qty
+            self.unitPriceCents = unitPriceCents
+        }
+
+        public var lineTotal: Money { Money(cents: unitPriceCents * qty) }
+    }
+
+    public init(
+        id: UUID,
+        tableNumber: Int,
+        items: [Item],
+        totalCents: Int,
+        requestedAt: Date,
+        deviceId: String,
+        updatedSeq: Int
+    ) {
+        self.id = id
+        self.tableNumber = tableNumber
+        self.items = items
+        self.totalCents = totalCents
+        self.requestedAt = requestedAt
+        self.deviceId = deviceId
+        self.updatedSeq = updatedSeq
+    }
+
+    public var total: Money { Money(cents: totalCents) }
+}
+
 // MARK: - Sync
 
 public struct SyncResponse: Codable, Sendable {

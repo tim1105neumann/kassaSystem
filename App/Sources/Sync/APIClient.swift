@@ -58,6 +58,10 @@ actor APIClient: KassaAPI {
         try await send(route: APIRoute.settlements, method: "POST", body: try encode(request))
     }
 
+    func createPrintRequest(_ request: CreatePrintRequestRequest) async throws {
+        try await sendRaw(route: APIRoute.printRequests, method: "POST", body: try encode(request))
+    }
+
     func dayReport(businessDay: String) async throws -> DayReportDTO {
         try await send(
             route: APIRoute.dayReport,

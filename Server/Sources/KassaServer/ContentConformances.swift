@@ -7,6 +7,8 @@ extension ArticleDTO: @retroactive Content {}
 extension OrderLineDTO: @retroactive Content {}
 extension SettlementDTO: @retroactive Content {}
 extension SettlementConflictDTO: @retroactive Content {}
+extension PrintRequestDTO: @retroactive Content {}
+extension CreatePrintRequestRequest: @retroactive Content {}
 extension SyncResponse: @retroactive Content {}
 extension LoginResponse: @retroactive Content {}
 extension ServerConfigDTO: @retroactive Content {}

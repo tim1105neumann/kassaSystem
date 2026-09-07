@@ -126,6 +126,26 @@ final class AppModel {
         await engine.start()
     }
 
+    /// Aufstellung zum Nachrechnen am Küchendrucker. Geht bewusst direkt zum
+    /// Server statt über die Offline-Queue: ein Zettel, der zwanzig Minuten
+    /// später aus dem Drucker kommt, hilft am Tisch niemandem mehr. Ergebnis
+    /// ist `nil` bei Erfolg, sonst die Meldung für den Kellner.
+    func printOverview(tableNumber: Int, selections: [SettlementLineSelection]) async -> String? {
+        do {
+            try await client.createPrintRequest(CreatePrintRequestRequest(
+                id: UUID(),
+                tableNumber: tableNumber,
+                lines: selections,
+                requestedAt: .now
+            ))
+            return nil
+        } catch let error as APIError {
+            return error.germanMessage
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func dayReport(for businessDay: String) async throws -> DayReportDTO {
         try await client.dayReport(businessDay: businessDay)
     }

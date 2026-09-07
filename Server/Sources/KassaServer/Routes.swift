@@ -21,6 +21,8 @@ func routes(_ app: Application) throws {
     api.post(APIRoute.orderLines.pathComponents, use: createOrderLines)
     api.post(APIRoute.orderLines.pathComponents + [":lineID", "void"], use: voidOrderLine)
     api.post(APIRoute.settlements.pathComponents, use: createSettlement)
+    api.post(APIRoute.printRequests.pathComponents, use: createPrintRequest)
+    api.get(APIRoute.printRequests.pathComponents, use: printRequests)
     api.get(APIRoute.dayReport.pathComponents, use: dayReport)
 
     api.webSocket(APIRoute.webSocket.pathComponents) { request, socket in

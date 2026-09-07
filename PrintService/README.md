@@ -98,11 +98,27 @@ Servers, siehe `deploy/README.md`):
   "pollIntervalSeconds": 2,
   "maxBonAgeMinutes": 120,
   "asciiFallback": false,
-  "lineWidth": 48
+  "lineWidth": 48,
+  "printOverviews": true,
+  "maxOverviewAgeMinutes": 5,
+  "footerText": "Der Reinerlös geht an die Freiwillige Feuerwehr Oberdorf."
 }
 ```
 
 Speichern mit `Strg+O`, `Enter`, schließen mit `Strg+X`.
+
+Die letzten drei Schlüssel betreffen die **Aufstellung** — den Zettel, den ein
+Kellner in der App auf Knopfdruck auslöst, wenn ein Gast nachrechnen möchte
+(siehe Abschnitt 9):
+
+| Schlüssel | Bedeutung |
+|---|---|
+| `printOverviews` | Auf `false` gesetzt, druckt der Dienst gar keine Aufstellungen mehr. Der Notausschalter, falls die Zettel in der Küche stören. |
+| `maxOverviewAgeMinutes` | Aufstellungen, die älter sind, werden verworfen. Fünf Minuten, weil ein Gast, der nachrechnen wollte, danach längst nicht mehr wartet — deutlich kürzer als `maxBonAgeMinutes` für Küchenbons. |
+| `footerText` | Freie Schlusszeile, z. B. der Hinweis auf den Spendenzweck. Weglassen oder leer lassen, dann steht dort nichts. |
+
+Der Hinweis, dass die Aufstellung keine Rechnung ist, steht **fest im
+Programm** und lässt sich hier nicht abschalten.
 
 **Rechte einschränken — das ist wichtig, nicht optional:**
 
@@ -373,6 +389,34 @@ die Kassa an den iPhones **unverändert weiter** — kassiert wird ganz normal,
 es fehlen dann nur die gedruckten Küchenbons. Das Personal in der Küche
 müsste sich in diesem Fall an den Bildschirmen/iPhones orientieren, aber es
 geht keine Bestellung verloren.
+
+## 9. Die Aufstellung für Gäste
+
+Neben den Küchenbons gibt derselbe Drucker gelegentlich einen zweiten Zettel
+aus: eine **Aufstellung**. Der Kellner löst sie in der App aus, bevor er
+kassiert, wenn ein Gast wissen will, wie der Betrag zustande kommt. Darauf
+stehen Positionen, Mengen, Einzelbeträge und die Summe.
+
+**Für die Küche wichtig zu wissen — das ist keine Bestellung.** Der Zettel
+sieht bewusst anders aus als ein Küchenbon: Er trägt in großer Schrift
+`AUFSTELLUNG` statt `TISCH n`, und darunter Preise, die auf einem Küchenbon nie
+stehen. Es ist nichts zu kochen. Der Kellner holt ihn ab.
+
+**Aufstellungen tragen keine Bon-Nummer.** Das ist Absicht: Die fortlaufende
+Nummer der Küchenbons ist das Mittel, mit dem in der Küche ein fehlender Bon
+auffällt (siehe unten). Zählten die Aufstellungen mit, entstünden in dieser
+Reihe Lücken, die nichts bedeuten — und die Nummer wäre als Warnzeichen
+wertlos.
+
+**Ist der Zettel älter als fünf Minuten, wird er nicht mehr gedruckt.** Nach
+einem Netzausfall steht der Gast, der nachrechnen wollte, längst nicht mehr da;
+ein verspäteter Zettel wäre nur Papier. Im Log steht dann eine Zeile dazu.
+Einstellbar über `maxOverviewAgeMinutes`, ganz abschalten lässt sich die
+Funktion mit `"printOverviews": false` (siehe Abschnitt 2).
+
+Die Aufstellung ist **kein Beleg**: keine Signatur, keine Nummer, kein
+revisionssicheres Protokoll. Sie sagt das auch selbst — der Hinweis darauf
+steht fest im Programm und lässt sich nicht wegkonfigurieren.
 
 ## Zwei weitere Dinge, die man kennen sollte
 

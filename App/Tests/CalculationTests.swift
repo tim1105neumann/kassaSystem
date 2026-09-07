@@ -104,6 +104,44 @@ struct CalculationTests {
         #expect(SettlementSelection.all(of: lines).subtotal(over: lines) == Money(cents: 2_560))
     }
 
+    @Test("Aufstellung enthält genau die Teilbetrags-Auswahl")
+    func printRequestCarriesPartialSelection() async throws {
+        let env = try TestEnvironment()
+        let krainerId = UUID()
+        let bierId = UUID()
+
+        env.store.merge(SyncResponse(
+            lines: [
+                OrderLineDTO(id: krainerId, tableNumber: 12, articleId: "a1", nameSnapshot: "Käsekrainer",
+                             unitPriceCents: 620, qty: 2, createdAt: .now, deviceId: "d", updatedSeq: 1),
+                OrderLineDTO(id: bierId, tableNumber: 12, articleId: "b1", nameSnapshot: "Bier",
+                             unitPriceCents: 440, qty: 3, createdAt: .now, deviceId: "d", updatedSeq: 2)
+            ],
+            settlements: [],
+            maxSeq: 2
+        ))
+        let lines = env.store.lines(forTable: 12)
+
+        var selection = SettlementSelection()
+        selection.set(1, for: krainerId, max: 2)
+
+        let request = CreatePrintRequestRequest(
+            id: UUID(),
+            tableNumber: 12,
+            lines: selection.requestLines(over: lines),
+            requestedAt: .now
+        )
+        try await env.api.createPrintRequest(request)
+
+        #expect(await env.api.serverPrintRequest(id: request.id)?.lines
+            == [SettlementLineSelection(lineId: krainerId, qty: 1)])
+
+        // Ein zweiter Druck braucht eine neue ID — dieselbe ergibt nur einen Zettel.
+        try await env.api.createPrintRequest(request)
+        #expect(await env.api.printRequestCallCount == 2)
+        #expect(await env.api.serverPrintRequestCount == 1)
+    }
+
     @Test("Teilzahlung reduziert die offene Tischsumme um den kassierten Anteil")
     func partialSettlementReducesOpenTotal() throws {
         let env = try TestEnvironment()

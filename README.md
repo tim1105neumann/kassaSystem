@@ -33,9 +33,17 @@ Lösung.
 - **Rechnung teilen** — einzelne Positionen und Mengen separat kassieren
 - **Rückgeld-Rechner** — mit Schnellwahl für gängige Scheine
 - **Tagesabschluss** — Umsatz gesamt, je Kategorie, meistverkaufte Artikel
+- **Küchenbons** — bestellte Speisen laufen auf den Drucker in der Küche
+- **Aufstellung zum Nachrechnen** — auf Knopfdruck ein Zettel mit Positionen,
+  Mengen und Summe, wenn ein Gast wissen will, wie der Betrag zustande kommt
 
-Bewusst nicht enthalten: Belegdruck, RKSV-Funktionen, Preislistenbearbeitung in
-der App, Benutzerkonten pro Person, Reservierungen, Küchenbons.
+Bewusst nicht enthalten: signierte Belege und RKSV-Funktionen,
+Preislistenbearbeitung in der App, Benutzerkonten pro Person, Reservierungen.
+
+Die Aufstellung ist ausdrücklich **kein Beleg**: sie trägt keine Signatur, ist
+nicht nummeriert und wird nicht revisionssicher protokolliert. Sie steht dem
+Gast zum Nachrechnen zur Verfügung, mehr nicht — siehe den rechtlichen Hinweis
+oben.
 
 ## Aufbau
 

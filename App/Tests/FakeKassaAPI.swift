@@ -9,6 +9,7 @@ actor FakeKassaAPI: KassaAPI {
     private var articleCatalog: [ArticleDTO]
     private var lines: [UUID: OrderLineDTO] = [:]
     private var settlements: [UUID: SettlementDTO] = [:]
+    private var printRequests: [UUID: CreatePrintRequestRequest] = [:]
     private var seq = 0
 
     /// Alle Aufrufe scheitern mit einem Netzfehler.
@@ -18,10 +19,12 @@ actor FakeKassaAPI: KassaAPI {
     var loseNextResponse = false
     var nextOrderLinesError: APIError?
     var nextSettlementError: APIError?
+    var nextPrintRequestError: APIError?
 
     private(set) var orderLineCallCount = 0
     private(set) var settlementCallCount = 0
     private(set) var voidCallCount = 0
+    private(set) var printRequestCallCount = 0
 
     init(articles: [ArticleDTO] = FakeKassaAPI.defaultArticles) {
         self.articleCatalog = articles
@@ -36,10 +39,13 @@ actor FakeKassaAPI: KassaAPI {
     func setLoseNextResponse(_ value: Bool) { loseNextResponse = value }
     func setNextOrderLinesError(_ value: APIError?) { nextOrderLinesError = value }
     func setNextSettlementError(_ value: APIError?) { nextSettlementError = value }
+    func setNextPrintRequestError(_ value: APIError?) { nextPrintRequestError = value }
 
     var serverLineCount: Int { lines.count }
     func serverLine(id: UUID) -> OrderLineDTO? { lines[id] }
     var serverSettlementCount: Int { settlements.count }
+    var serverPrintRequestCount: Int { printRequests.count }
+    func serverPrintRequest(id: UUID) -> CreatePrintRequestRequest? { printRequests[id] }
 
     // MARK: - KassaAPI
 
@@ -141,6 +147,16 @@ actor FakeKassaAPI: KassaAPI {
         )
         settlements[request.id] = settlement
         return settlement
+    }
+
+    func createPrintRequest(_ request: CreatePrintRequestRequest) async throws {
+        printRequestCallCount += 1
+        try guardOnline()
+        if let error = nextPrintRequestError {
+            nextPrintRequestError = nil
+            throw error
+        }
+        if printRequests[request.id] == nil { printRequests[request.id] = request }
     }
 
     func dayReport(businessDay: String) async throws -> DayReportDTO {

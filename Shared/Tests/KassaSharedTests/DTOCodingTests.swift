@@ -100,6 +100,46 @@ struct DTOCodingTests {
         #expect(decoded.grandTotal.cents == 2970)
     }
 
+    @Test("Druckauftrag-Anforderung überlebt einen JSON-Rundlauf unverändert")
+    func createPrintRequestRoundTrip() throws {
+        let lineId = UUID()
+        let original = CreatePrintRequestRequest(
+            id: UUID(),
+            tableNumber: 9,
+            lines: [SettlementLineSelection(lineId: lineId, qty: 2)],
+            requestedAt: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+        let data = try KassaJSON.encoder.encode(original)
+        #expect(String(decoding: data, as: UTF8.self).contains("2026-05-28T20:26:40Z"))
+        let decoded = try KassaJSON.decoder.decode(CreatePrintRequestRequest.self, from: data)
+        #expect(decoded == original)
+        #expect(decoded.lines == [SettlementLineSelection(lineId: lineId, qty: 2)])
+    }
+
+    @Test("Druckauftrag überlebt den Rundlauf samt verschachtelter Positionen")
+    func printRequestRoundTrip() throws {
+        let original = PrintRequestDTO(
+            id: UUID(),
+            tableNumber: 9,
+            items: [
+                PrintRequestDTO.Item(name: "Käsekrainer mit Pommes", qty: 2, unitPriceCents: 920),
+                PrintRequestDTO.Item(name: "Bier 0,3 l", qty: 3, unitPriceCents: 380)
+            ],
+            totalCents: 2980,
+            requestedAt: Date(timeIntervalSince1970: 1_780_000_000),
+            deviceId: "device-a",
+            updatedSeq: 13
+        )
+        let data = try KassaJSON.encoder.encode(original)
+        #expect(String(decoding: data, as: UTF8.self).contains("2026-05-28T20:26:40Z"))
+        let decoded = try KassaJSON.decoder.decode(PrintRequestDTO.self, from: data)
+        #expect(decoded == original)
+        #expect(decoded.items.count == 2)
+        #expect(decoded.items[0].lineTotal.cents == 1840)
+        #expect(decoded.items[1].lineTotal.cents == 1140)
+        #expect(decoded.total.cents == 2980)
+    }
+
     @Test("Konfliktantwort transportiert die betroffenen Zeilen")
     func conflictRoundTrip() throws {
         let id = UUID()

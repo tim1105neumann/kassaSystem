@@ -13,6 +13,7 @@ public protocol KassaServerAccess: AnyObject {
     func articles() throws -> [ArticleDTO]
     func devices() throws -> [DeviceDTO]
     func sync(since: Int) throws -> SyncResponse
+    func printRequests(since: Int) throws -> [PrintRequestDTO]
 }
 
 public enum HTTPError: Error, LocalizedError, Equatable {
@@ -108,6 +109,10 @@ public final class HTTPClient: KassaServerAccess {
 
     public func sync(since: Int) throws -> SyncResponse {
         try angemeldet(pfad: "\(APIRoute.sync)?since=\(since)")
+    }
+
+    public func printRequests(since: Int) throws -> [PrintRequestDTO] {
+        try angemeldet(pfad: "\(APIRoute.printRequests)?since=\(since)")
     }
 
     // MARK: - Anfragen mit Token

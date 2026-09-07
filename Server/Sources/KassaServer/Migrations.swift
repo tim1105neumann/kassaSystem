@@ -87,3 +87,26 @@ struct AddSettlementTip: AsyncMigration {
             .update()
     }
 }
+
+struct CreatePrintRequests: AsyncMigration {
+    func prepare(on database: any Database) async throws {
+        try await database.schema(PrintRequest.schema)
+            .field(.id, .uuid, .identifier(auto: false))
+            .field("table_number", .int, .required)
+            .field("items_json", .string, .required)
+            .field("total_cents", .int, .required)
+            .field("requested_at", .datetime, .required)
+            .field("device_id", .string, .required)
+            .field("updated_seq", .int, .required)
+            .create()
+
+        // Der Druckdienst pollt ausschließlich über updated_seq.
+        if let sql = database as? any SQLDatabase {
+            try await sql.raw("CREATE INDEX print_requests_updated_seq ON print_requests (updated_seq)").run()
+        }
+    }
+
+    func revert(on database: any Database) async throws {
+        try await database.schema(PrintRequest.schema).delete()
+    }
+}

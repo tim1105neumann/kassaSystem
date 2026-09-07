@@ -66,7 +66,7 @@ public final class Service {
             melde(error)
             return false
         }
-        ladeGeraeteFallsNoetig(delta: antwort.lines)
+        ladeGeraeteFallsNoetig(deviceIds: antwort.lines.map(\.deviceId))
 
         for zeile in antwort.lines where catalog[zeile.articleId] == nil {
             log.warn(
@@ -103,6 +103,13 @@ public final class Service {
         }
 
         entwarnung()
+
+        // Aufstellungen ganz zuletzt: kein Küchenbon soll je hinter einem
+        // Gast-Zettel in der Warteschlange stehen. `state.lastSeq` ist hier noch
+        // der Stand von vor diesem Durchlauf — ein Auftrag, der zwischen `/sync`
+        // und dieser Abfrage entstanden ist, käme mit dem neuen Stand nie an.
+        druckeAufstellungen(since: state.lastSeq, now: now)
+
         state.lastSeq = antwort.maxSeq
         state = state.pruned(now: now)
         sichere()
@@ -138,11 +145,14 @@ public final class Service {
             for id in zeilenIDs(von: job, delta: delta, geplant: ergebnis.state) {
                 state.lines[id] = ergebnis.state.lines[id]
             }
-            state.nextBonNumber = job.bonNumber + 1
+            // Küchenbons tragen immer eine Nummer; nur Aufstellungen haben keine,
+            // und die kommen hier nie an.
+            let nummer = job.bonNumber ?? state.nextBonNumber
+            state.nextBonNumber = nummer + 1
             sichere()
 
             let art = job.kind == .cancellation ? "Storno-Bon" : "Bon"
-            log.info("\(art) \(job.bonNumber) gedruckt (Tisch \(job.tableNumber), \(job.items.count) Positionen).")
+            log.info("\(art) \(nummer) gedruckt (Tisch \(job.tableNumber), \(job.items.count) Positionen).")
         }
         return true
     }
@@ -159,6 +169,58 @@ public final class Service {
                   neu.status == gesucht else { return false }
             return state.lines[zeile.id] != neu
         }.map(\.id)
+    }
+
+    /// Die Druckaufträge hängen am selben Sequenzzähler wie das Delta, bekommen
+    /// aber keinen eigenen Stand in der Zustandsdatei. Zwei Stände müssten
+    /// gemeinsam gesichert werden, und jeder Abbruch dazwischen ließe sie
+    /// auseinanderlaufen — mit dem Ergebnis, dass ein Auftrag entweder doppelt
+    /// gedruckt wird oder für immer fehlt. Ein einziger Stand, der auch mal zu
+    /// weit zurückliegt, ist das kleinere Übel: derselbe Auftrag taucht dann
+    /// erneut auf, und `state.printRequests` erkennt ihn wieder.
+    ///
+    /// Fehler bleiben hier folgenlos, wie beim Gerätenamen: der Küchenbon-Teil
+    /// ist gedruckt und gesichert, das Essen wird gekocht. Ein Gast-Zettel, der
+    /// nicht kommt, ist kein Grund, den Durchlauf für gescheitert zu erklären.
+    private func druckeAufstellungen(since: Int, now: Date) {
+        let auftraege: [PrintRequestDTO]
+        do {
+            auftraege = try server.printRequests(since: since)
+        } catch {
+            melde(error)
+            return
+        }
+        guard !auftraege.isEmpty else { return }
+
+        ladeGeraeteFallsNoetig(deviceIds: auftraege.map(\.deviceId))
+
+        let ergebnis = BonPlanner.planOverviews(
+            requests: auftraege,
+            deviceNames: deviceNames,
+            state: state,
+            config: config,
+            now: now
+        )
+        for warnung in ergebnis.warnings { log.warn(warnung) }
+        // Was der Planer selbst vermerkt hat, hängt an keinem Druck: zu alt,
+        // abgeschaltet oder längst erledigt.
+        state.printRequests = ergebnis.state.printRequests
+
+        // Übrig bleiben genau die Aufträge, aus denen ein Job wurde — in
+        // derselben Reihenfolge, in der der Planer sie durchgegangen ist.
+        let offen = auftraege.filter { ergebnis.state.printRequests[$0.id] == nil }
+        for (job, auftrag) in zip(ergebnis.jobs, offen) {
+            do {
+                try printer.print(job, config: config)
+            } catch {
+                melde(error)
+                return
+            }
+            // Erst Papier, dann Zustand — aus demselben Grund wie bei `drucke`.
+            state.printRequests[auftrag.id] = now
+            sichere()
+            log.info("Aufstellung für Tisch \(job.tableNumber) gedruckt (\(job.items.count) Positionen).")
+        }
     }
 
     // MARK: - Katalog und Geräte
@@ -180,8 +242,8 @@ public final class Service {
     /// Ein neues iPhone hat sich angemeldet. Anders als beim Katalog ist ein
     /// Fehler hier kein Abbruchgrund: fehlt der Gerätename, fehlt auf dem Bon
     /// nur die Zeile „Kellner: …“ — das Essen wird trotzdem gekocht.
-    private func ladeGeraeteFallsNoetig(delta: [OrderLineDTO]) {
-        let unbekannt = delta.contains { deviceNames[$0.deviceId] == nil }
+    private func ladeGeraeteFallsNoetig(deviceIds: [String]) {
+        let unbekannt = deviceIds.contains { deviceNames[$0] == nil }
         guard unbekannt else { return }
 
         do {

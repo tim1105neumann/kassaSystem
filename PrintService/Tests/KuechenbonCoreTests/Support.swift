@@ -80,3 +80,39 @@ func planen(
         coldStart: coldStart
     )
 }
+
+func druckauftrag(
+    tisch: Int,
+    id: UUID = UUID(),
+    positionen: [PrintRequestDTO.Item] = [
+        PrintRequestDTO.Item(name: "Käsekrainer mit Gebäck", qty: 2, unitPriceCents: 620)
+    ],
+    requestedAt: Date,
+    deviceId: String = "d-anna",
+    seq: Int = 1
+) -> PrintRequestDTO {
+    PrintRequestDTO(
+        id: id,
+        tableNumber: tisch,
+        items: positionen,
+        totalCents: positionen.reduce(0) { $0 + $1.unitPriceCents * $1.qty },
+        requestedAt: requestedAt,
+        deviceId: deviceId,
+        updatedSeq: seq
+    )
+}
+
+func planenAufstellungen(
+    _ auftraege: [PrintRequestDTO],
+    state: PrintState = PrintState(),
+    config: BonConfig = testConfig,
+    now: Date
+) -> PlannerResult {
+    BonPlanner.planOverviews(
+        requests: auftraege,
+        deviceNames: geraete,
+        state: state,
+        config: config,
+        now: now
+    )
+}

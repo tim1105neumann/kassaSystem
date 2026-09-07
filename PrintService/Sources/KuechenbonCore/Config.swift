@@ -20,6 +20,20 @@ public struct BonConfig: Codable, Sendable, Equatable {
     /// Notausgang, falls die Munbyn-Firmware CP437 nicht beherrscht.
     public var asciiFallback: Bool
     public var lineWidth: Int
+    /// Notausschalter, falls die Zettel für die Gäste den Koch stören.
+    public var printOverviews: Bool
+    /// Eine Aufstellung ist nur so lange etwas wert, wie der Gast noch am Tisch
+    /// sitzt und nachrechnen will. Fünf Minuten später hat er längst gezahlt,
+    /// und der Zettel wandert ungelesen in den Müll. Deshalb ein Bruchteil von
+    /// `maxBonAgeMinutes`: ein Küchenbon von vor zwei Stunden gehört zu Essen,
+    /// das noch gekocht werden muss — eine Aufstellung von vor fünf Minuten zu
+    /// niemandem mehr.
+    public var maxOverviewAgeMinutes: Int
+    /// Freie Fußzeile unter dem Hinweistext, etwa der Verweis auf den
+    /// Wohltätigkeitszweck. Bewusst ein Konfigurationsschlüssel: so lässt sie
+    /// sich am Küchen-Mac ändern, ohne dass dafür am Entwicklungsrechner ein
+    /// neues Binary quergebaut und übertragen werden muss.
+    public var footerText: String?
 
     public init(
         serverURL: String,
@@ -31,7 +45,10 @@ public struct BonConfig: Codable, Sendable, Equatable {
         pollIntervalSeconds: Double = 2,
         maxBonAgeMinutes: Int = 120,
         asciiFallback: Bool = false,
-        lineWidth: Int = 48
+        lineWidth: Int = 48,
+        printOverviews: Bool = true,
+        maxOverviewAgeMinutes: Int = 5,
+        footerText: String? = nil
     ) {
         self.serverURL = serverURL
         self.password = password
@@ -43,6 +60,9 @@ public struct BonConfig: Codable, Sendable, Equatable {
         self.maxBonAgeMinutes = maxBonAgeMinutes
         self.asciiFallback = asciiFallback
         self.lineWidth = lineWidth
+        self.printOverviews = printOverviews
+        self.maxOverviewAgeMinutes = maxOverviewAgeMinutes
+        self.footerText = footerText
     }
 
     /// Fehlende Schlüssel sind kein Fehler, sondern der Standardwert — sonst
@@ -60,6 +80,9 @@ public struct BonConfig: Codable, Sendable, Equatable {
         maxBonAgeMinutes = try container.decodeIfPresent(Int.self, forKey: .maxBonAgeMinutes) ?? fallback.maxBonAgeMinutes
         asciiFallback = try container.decodeIfPresent(Bool.self, forKey: .asciiFallback) ?? fallback.asciiFallback
         lineWidth = try container.decodeIfPresent(Int.self, forKey: .lineWidth) ?? fallback.lineWidth
+        printOverviews = try container.decodeIfPresent(Bool.self, forKey: .printOverviews) ?? fallback.printOverviews
+        maxOverviewAgeMinutes = try container.decodeIfPresent(Int.self, forKey: .maxOverviewAgeMinutes) ?? fallback.maxOverviewAgeMinutes
+        footerText = try container.decodeIfPresent(String.self, forKey: .footerText)
     }
 
     /// Die Konfigdatei ist kein Wire-Format, deshalb bewusst ein normaler

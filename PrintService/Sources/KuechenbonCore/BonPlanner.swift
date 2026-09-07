@@ -4,35 +4,49 @@ import KassaShared
 /// Ein druckfertiger Bon. Enthält nichts mehr, was noch nachgeschlagen
 /// werden müsste — der Renderer kommt ohne Katalog aus.
 public struct BonJob: Equatable, Sendable {
-    public enum Kind: String, Sendable { case order, cancellation }
+    public enum Kind: String, Sendable { case order, cancellation, overview }
 
     public struct Item: Equatable, Sendable {
         public var qty: Int
         public var name: String
+        /// Nur auf der Aufstellung befüllt. Auf dem Küchenbon steht bewusst kein
+        /// Preis: der Koch braucht ihn nicht, und jede Zahl mehr ist eine Zahl,
+        /// die er beim Überfliegen aussortieren muss.
+        public var unitPriceCents: Int?
 
-        public init(qty: Int, name: String) {
+        public init(qty: Int, name: String, unitPriceCents: Int? = nil) {
             self.qty = qty
             self.name = name
+            self.unitPriceCents = unitPriceCents
         }
     }
 
     public var kind: Kind
     public var tableNumber: Int
-    public var bonNumber: Int
+    /// `nil` auf der Aufstellung: die fortlaufende Nummer ist das Mittel, mit
+    /// dem die Küche einen fehlenden Bon bemerkt. Zählten Aufstellungen mit,
+    /// entstünden in der Bonfolge Lücken, hinter denen nichts steckt — und der
+    /// Mechanismus wäre entwertet.
+    public var bonNumber: Int?
     public var time: Date
     public var deviceName: String?
     public var items: [Item]
     /// Nur bei `.cancellation` befüllt: die Bons, auf denen das Storno stand.
     public var originalBonNumbers: [Int]
+    /// Nur bei `.overview` befüllt.
+    public var totalCents: Int?
+    public var footerText: String?
 
     public init(
         kind: Kind,
         tableNumber: Int,
-        bonNumber: Int,
+        bonNumber: Int?,
         time: Date,
         deviceName: String?,
         items: [Item],
-        originalBonNumbers: [Int] = []
+        originalBonNumbers: [Int] = [],
+        totalCents: Int? = nil,
+        footerText: String? = nil
     ) {
         self.kind = kind
         self.tableNumber = tableNumber
@@ -41,6 +55,8 @@ public struct BonJob: Equatable, Sendable {
         self.deviceName = deviceName
         self.items = items
         self.originalBonNumbers = originalBonNumbers
+        self.totalCents = totalCents
+        self.footerText = footerText
     }
 }
 
@@ -176,6 +192,65 @@ public enum BonPlanner {
                 }
                 state.nextBonNumber += 1
             }
+        }
+
+        return PlannerResult(jobs: jobs, state: state, warnings: warnings)
+    }
+
+    /// Rein wie `plan`, aus demselben Grund: die Altersgrenze und die
+    /// Dublettensperre lassen sich sonst nur mit echter Uhr und echtem Server
+    /// prüfen.
+    ///
+    /// `state.nextBonNumber` bleibt hier unangetastet — siehe `BonJob.bonNumber`.
+    public static func planOverviews(
+        requests: [PrintRequestDTO],
+        deviceNames: [String: String],
+        state: PrintState,
+        config: BonConfig,
+        now: Date
+    ) -> PlannerResult {
+        var state = state
+        var warnings: [String] = []
+        var jobs: [BonJob] = []
+
+        let maxAge = TimeInterval(config.maxOverviewAgeMinutes * 60)
+
+        for request in requests {
+            // Der Auftrag kommt im nächsten Delta erneut (siehe Service.swift);
+            // ohne diese Sperre bekäme der Gast alle zwei Sekunden einen Zettel.
+            guard state.printRequests[request.id] == nil else { continue }
+
+            guard config.printOverviews else {
+                // Abgeschaltet heißt „nicht drucken“, nicht „später nochmal
+                // ansehen“: ohne Vermerk stünde derselbe Auftrag bis zum Ende
+                // der Serveraufbewahrung in jedem Delta.
+                state.printRequests[request.id] = now
+                continue
+            }
+
+            if now.timeIntervalSince(request.requestedAt) > maxAge {
+                state.printRequests[request.id] = now
+                warnings.append(
+                    "Die Aufstellung für Tisch \(request.tableNumber) ist älter als "
+                    + "\(config.maxOverviewAgeMinutes) Minuten und wurde nicht gedruckt."
+                )
+                continue
+            }
+
+            jobs.append(BonJob(
+                kind: .overview,
+                tableNumber: request.tableNumber,
+                bonNumber: nil,
+                // Zeitpunkt der Anforderung, nicht des Drucks: der Kellner
+                // erkennt daran, ob der Zettel zu seinem letzten Tippen gehört.
+                time: request.requestedAt,
+                deviceName: deviceNames[request.deviceId],
+                items: request.items.map {
+                    BonJob.Item(qty: $0.qty, name: $0.name, unitPriceCents: $0.unitPriceCents)
+                },
+                totalCents: request.totalCents,
+                footerText: config.footerText
+            ))
         }
 
         return PlannerResult(jobs: jobs, state: state, warnings: warnings)
