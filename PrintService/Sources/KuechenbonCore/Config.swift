@@ -29,6 +29,18 @@ public struct BonConfig: Codable, Sendable, Equatable {
     /// das noch gekocht werden muss — eine Aufstellung von vor fünf Minuten zu
     /// niemandem mehr.
     public var maxOverviewAgeMinutes: Int
+    /// Notausschalter wie `printOverviews`, für den dritten Zettel.
+    public var printDayReports: Bool
+    /// Der Wirt steht nicht wie der Gast am Tisch und wartet — eine Statistik
+    /// darf ein paar Minuten brauchen. Eine, die am nächsten Vormittag aus dem
+    /// Drucker kommt, hat aber auch niemand mehr bestellt. Deshalb länger als
+    /// `maxOverviewAgeMinutes` und kürzer als `maxBonAgeMinutes`: dazwischen
+    /// liegt genau der Abend, an dem die Zahlen noch jemanden interessieren.
+    public var maxDayReportAgeMinutes: Int
+    /// Der Katalog hat 32 Zeilen. Die volle Liste macht aus dem Zettel eine
+    /// Preisliste, in der die Spitzenreiter untergehen — und die der Wirt
+    /// abreißen muss, statt sie in die Hand zu nehmen.
+    public var dayReportTopArticles: Int
     /// Freie Fußzeile unter dem Hinweistext, etwa der Verweis auf den
     /// Wohltätigkeitszweck. Bewusst ein Konfigurationsschlüssel: so lässt sie
     /// sich am Küchen-Mac ändern, ohne dass dafür am Entwicklungsrechner ein
@@ -48,6 +60,9 @@ public struct BonConfig: Codable, Sendable, Equatable {
         lineWidth: Int = 48,
         printOverviews: Bool = true,
         maxOverviewAgeMinutes: Int = 5,
+        printDayReports: Bool = true,
+        maxDayReportAgeMinutes: Int = 60,
+        dayReportTopArticles: Int = 10,
         footerText: String? = nil
     ) {
         self.serverURL = serverURL
@@ -62,6 +77,9 @@ public struct BonConfig: Codable, Sendable, Equatable {
         self.lineWidth = lineWidth
         self.printOverviews = printOverviews
         self.maxOverviewAgeMinutes = maxOverviewAgeMinutes
+        self.printDayReports = printDayReports
+        self.maxDayReportAgeMinutes = maxDayReportAgeMinutes
+        self.dayReportTopArticles = dayReportTopArticles
         self.footerText = footerText
     }
 
@@ -82,6 +100,9 @@ public struct BonConfig: Codable, Sendable, Equatable {
         lineWidth = try container.decodeIfPresent(Int.self, forKey: .lineWidth) ?? fallback.lineWidth
         printOverviews = try container.decodeIfPresent(Bool.self, forKey: .printOverviews) ?? fallback.printOverviews
         maxOverviewAgeMinutes = try container.decodeIfPresent(Int.self, forKey: .maxOverviewAgeMinutes) ?? fallback.maxOverviewAgeMinutes
+        printDayReports = try container.decodeIfPresent(Bool.self, forKey: .printDayReports) ?? fallback.printDayReports
+        maxDayReportAgeMinutes = try container.decodeIfPresent(Int.self, forKey: .maxDayReportAgeMinutes) ?? fallback.maxDayReportAgeMinutes
+        dayReportTopArticles = try container.decodeIfPresent(Int.self, forKey: .dayReportTopArticles) ?? fallback.dayReportTopArticles
         footerText = try container.decodeIfPresent(String.self, forKey: .footerText)
     }
 

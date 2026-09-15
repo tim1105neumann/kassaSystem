@@ -106,4 +106,36 @@ struct OfflineQueueTests {
         #expect(env.store.openPendingCount == 0)
         #expect(env.store.lines(forTable: 4).first?.note == "ohne Senf")
     }
+
+    @Test("Der Statistik-Druck geht direkt ans Netz und legt nichts in die Queue")
+    func dayReportPrintBypassesQueue() async throws {
+        let env = try TestEnvironment()
+
+        let request = CreateDayReportPrintRequestRequest(
+            id: UUID(),
+            businessDay: "2025-09-06",
+            requestedAt: .now
+        )
+        try await env.api.createDayReportPrintRequest(request)
+
+        #expect(await env.api.serverDayReportPrint(id: request.id)?.businessDay == "2025-09-06")
+        #expect(env.store.openPendingCount == 0)
+        #expect(env.store.failedPendingCount == 0)
+
+        // Ohne Netz gibt es keine Zahlen zu drucken. Der Fehler muss deshalb sofort
+        // beim Wirt landen, statt als Command liegenzubleiben und Stunden später
+        // einen Zettel auszulösen, den niemand mehr bestellt hat.
+        await env.api.setOffline(true)
+        await #expect(throws: APIError.self) {
+            try await env.api.createDayReportPrintRequest(CreateDayReportPrintRequestRequest(
+                id: UUID(),
+                businessDay: "2025-09-06",
+                requestedAt: .now
+            ))
+        }
+
+        #expect(await env.api.serverDayReportPrintCount == 1)
+        #expect(env.store.openPendingCount == 0)
+        #expect(env.store.failedPendingCount == 0)
+    }
 }

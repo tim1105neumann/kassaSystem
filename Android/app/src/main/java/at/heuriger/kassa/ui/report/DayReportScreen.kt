@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -31,9 +34,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -51,9 +57,11 @@ import at.heuriger.kassa.ui.components.KassaEmptyState
 import at.heuriger.kassa.ui.components.KassaFootnote
 import at.heuriger.kassa.ui.components.KassaFormGroup
 import at.heuriger.kassa.ui.components.KassaLabeledRow
+import at.heuriger.kassa.ui.components.KassaNoticeRow
 import at.heuriger.kassa.ui.components.KassaRowDivider
 import at.heuriger.kassa.ui.components.KassaSectionHeader
 import at.heuriger.kassa.ui.components.KassaSheetHeader
+import at.heuriger.kassa.ui.components.KassaTintedButton
 import at.heuriger.kassa.ui.theme.KassaTheme
 import at.heuriger.kassa.wire.BusinessDay
 import at.heuriger.kassa.wire.DayReportDto
@@ -65,6 +73,15 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.launch
+
+/** Zustand des Druckauftrags. Bewusst kurzlebig, siehe [DayReportScreen]. */
+private sealed interface PrintState {
+    data object Idle : PrintState
+    data object Sending : PrintState
+    data object Done : PrintState
+    data class Failed(val message: String) : PrintState
+}
 
 /** Was der Bericht gerade ist: unterwegs, gescheitert oder da. */
 sealed interface DayReportState {
@@ -88,6 +105,12 @@ sealed interface DayReportState {
  * **UTC** des gewaehlten Kalendertags. Der *Betriebstag* daraus wird nicht hier
  * gebildet, sondern vom Aufrufer ueber [BusinessDay.day] — die Verschiebung um
  * den Cutoff ist Vertragslogik und gehoert nicht in die Oberflaeche.
+ *
+ * [onPrintDayReport] ist `suspend` und liefert `null` bei Erfolg, sonst die
+ * deutsche Meldung. Gedruckt wird der Betriebstag, der gerade am Schirm steht —
+ * der Aufrufer kennt ihn, der Bildschirm rechnet ihn nicht selbst aus. Wie die
+ * Aufstellung geht der Druck **direkt an den Server** und nicht durch die
+ * Offline-Queue: ohne Netz gaebe es ohnehin keine Zahlen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,12 +119,22 @@ fun DayReportScreen(
     cutoffHour: Int,
     state: DayReportState,
     onSelectDate: (Long) -> Unit,
+    onPrintDayReport: suspend () -> String?,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = KassaTheme.colors
     val dimens = KassaTheme.dimens
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     var showPicker by remember { mutableStateOf(false) }
+
+    // Der `remember`-Schluessel setzt die Rueckmeldung beim Tageswechsel zurueck.
+    // Ohne ihn stuende der gruene Haken vom gedruckten Freitag noch da, waehrend
+    // am Schirm schon der Samstag steht — und der Wirt glaubte, den auch
+    // gedruckt zu haben. Ein eigener `LaunchedEffect` dafuer waere derselbe
+    // Effekt mit mehr Zeilen.
+    var printState by remember(selectedDateMillis) { mutableStateOf<PrintState>(PrintState.Idle) }
 
     Column(
         modifier = modifier
@@ -153,7 +186,28 @@ fun DayReportScreen(
                     )
                 }
 
-                is DayReportState.Loaded -> reportSections(state.report)
+                is DayReportState.Loaded -> {
+                    reportSections(state.report)
+                    item(key = "print") {
+                        PrintSection(
+                            state = printState,
+                            onPrint = {
+                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                printState = PrintState.Sending
+                                scope.launch {
+                                    val failure = onPrintDayReport()
+                                    printState = if (failure == null) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                        PrintState.Done
+                                    } else {
+                                        haptics.performHapticFeedback(HapticFeedbackType.Reject)
+                                        PrintState.Failed(failure)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -364,6 +418,56 @@ private fun SettlementRow(settlement: SettlementDto) {
     }
 }
 
+/**
+ * Knopf und Rueckmeldung fuer den Ausdruck in der Kueche.
+ *
+ * Steht bewusst unter den Zahlen und nicht in der Kopfzeile: gedruckt wird erst,
+ * wenn der Wirt gesehen hat, was auf dem Zettel stehen wird.
+ */
+@Composable
+private fun PrintSection(state: PrintState, onPrint: () -> Unit) {
+    val colors = KassaTheme.colors
+    val sending = state == PrintState.Sending
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = KassaTheme.dimens.screenPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        KassaTintedButton(
+            text = stringResource(R.string.report_print),
+            icon = Icons.Filled.Print,
+            contentDescription = stringResource(R.string.report_a11y_print),
+            enabled = !sending,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onPrint,
+            content = if (!sending) null else {
+                {
+                    CircularProgressIndicator(
+                        color = colors.accent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            },
+        )
+
+        when (state) {
+            PrintState.Idle, PrintState.Sending -> Unit
+            PrintState.Done -> KassaNoticeRow(
+                icon = Icons.Filled.CheckCircle,
+                text = stringResource(R.string.report_print_done),
+                tint = colors.green,
+            )
+            is PrintState.Failed -> KassaNoticeRow(
+                icon = Icons.Filled.Warning,
+                text = state.message,
+                tint = colors.red,
+            )
+        }
+    }
+}
+
 /** Ueberschrift plus Karte — die Bauform jeder Gruppe in diesem Bericht. */
 @Composable
 private fun Section(@StringRes titleRes: Int, content: @Composable ColumnScope.() -> Unit) {
@@ -468,6 +572,7 @@ private fun DayReportLoadedPreview() {
             cutoffHour = 6,
             state = DayReportState.Loaded(previewReport()),
             onSelectDate = {},
+            onPrintDayReport = { null },
             onDone = {},
         )
     }
@@ -482,6 +587,7 @@ private fun DayReportWithoutTipPreview() {
             cutoffHour = 6,
             state = DayReportState.Loaded(previewReport().copy(tipCents = 0)),
             onSelectDate = {},
+            onPrintDayReport = { null },
             onDone = {},
         )
     }
@@ -505,6 +611,7 @@ private fun DayReportEmptyPreview() {
                 )
             ),
             onSelectDate = {},
+            onPrintDayReport = { null },
             onDone = {},
         )
     }
@@ -519,6 +626,7 @@ private fun DayReportFailedPreview() {
             cutoffHour = 6,
             state = DayReportState.Failed("Keine Verbindung zum Server."),
             onSelectDate = {},
+            onPrintDayReport = { null },
             onDone = {},
         )
     }
@@ -533,7 +641,29 @@ private fun DayReportLargeFontPreview() {
             cutoffHour = 6,
             state = DayReportState.Loaded(previewReport()),
             onSelectDate = {},
+            onPrintDayReport = { null },
             onDone = {},
         )
+    }
+}
+
+/**
+ * Die beiden Rueckmeldungen einzeln, nicht als ganzer Bildschirm: „gedruckt" und
+ * „gescheitert" entstehen erst durch einen Knopfdruck, und den gibt es in einer
+ * Vorschau nicht. [PrintSection] bekommt den Zustand dagegen von aussen.
+ */
+@Preview(name = "Statistik gedruckt", showBackground = true)
+@Composable
+private fun DayReportPrintDonePreview() {
+    KassaTheme {
+        PrintSection(state = PrintState.Done, onPrint = {})
+    }
+}
+
+@Preview(name = "Statistik gescheitert", showBackground = true)
+@Composable
+private fun DayReportPrintFailedPreview() {
+    KassaTheme {
+        PrintSection(state = PrintState.Failed("Keine Verbindung zum Server."), onPrint = {})
     }
 }

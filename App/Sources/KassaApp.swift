@@ -146,6 +146,26 @@ final class AppModel {
         }
     }
 
+    /// Tagesstatistik am Küchendrucker. Geht wie die Aufstellung an der
+    /// Offline-Queue vorbei: Die Zahlen rechnet der Server, ohne Verbindung gibt
+    /// es also gar keinen Bericht — eine stille Nachlieferung würde einen Zettel
+    /// ausspucken, auf den in der Küche längst niemand mehr wartet. Ergebnis ist
+    /// `nil` bei Erfolg, sonst die Meldung für den Wirt.
+    func printDayReport(businessDay: String) async -> String? {
+        do {
+            try await client.createDayReportPrintRequest(CreateDayReportPrintRequestRequest(
+                id: UUID(),
+                businessDay: businessDay,
+                requestedAt: .now
+            ))
+            return nil
+        } catch let error as APIError {
+            return error.germanMessage
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func dayReport(for businessDay: String) async throws -> DayReportDTO {
         try await client.dayReport(businessDay: businessDay)
     }

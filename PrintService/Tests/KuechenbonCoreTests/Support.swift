@@ -118,3 +118,56 @@ func planenAufstellungen(
         now: now
     )
 }
+
+func statistikauftrag(
+    id: UUID = UUID(),
+    businessDay: String = "2025-09-06",
+    requestedAt: Date,
+    deviceId: String = "d-bert",
+    seq: Int = 1
+) -> DayReportPrintRequestDTO {
+    DayReportPrintRequestDTO(
+        id: id,
+        businessDay: businessDay,
+        requestedAt: requestedAt,
+        deviceId: deviceId,
+        updatedSeq: seq
+    )
+}
+
+/// Der Bericht, wie ihn `GET /reports/day` liefert. `settlements` bleibt leer:
+/// Die Einzelliste der Kassiervorgänge steht bewusst auf keinem Zettel, und
+/// kein Test darf davon abhängen.
+func bericht(
+    businessDay: String = "2025-09-06",
+    totalCents: Int = 41240,
+    tipCents: Int = 1860,
+    settlementCount: Int = 37,
+    byCategory: [DayReportDTO.CategoryTotal] = [
+        DayReportDTO.CategoryTotal(category: "Getraenke", totalCents: 14440),
+        DayReportDTO.CategoryTotal(category: "Speisen", totalCents: 26800)
+    ],
+    topArticles: [DayReportDTO.ArticleTotal] = [
+        DayReportDTO.ArticleTotal(articleId: "a-krainer", name: "Käsekrainer mit Gebäck", qty: 12, totalCents: 7440),
+        DayReportDTO.ArticleTotal(articleId: "a-bier", name: "Bier 0,5", qty: 9, totalCents: 4320)
+    ]
+) -> DayReportDTO {
+    DayReportDTO(
+        businessDay: businessDay,
+        totalCents: totalCents,
+        settlementCount: settlementCount,
+        byCategory: byCategory,
+        topArticles: topArticles,
+        settlements: [],
+        tipCents: tipCents
+    )
+}
+
+func planenStatistiken(
+    _ auftraege: [DayReportPrintRequestDTO],
+    state: PrintState = PrintState(),
+    config: BonConfig = testConfig,
+    now: Date
+) -> DueDayReports {
+    BonPlanner.dueDayReports(requests: auftraege, state: state, config: config, now: now)
+}

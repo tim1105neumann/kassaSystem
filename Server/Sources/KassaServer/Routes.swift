@@ -23,6 +23,8 @@ func routes(_ app: Application) throws {
     api.post(APIRoute.settlements.pathComponents, use: createSettlement)
     api.post(APIRoute.printRequests.pathComponents, use: createPrintRequest)
     api.get(APIRoute.printRequests.pathComponents, use: printRequests)
+    api.post(APIRoute.dayReportPrintRequests.pathComponents, use: createDayReportPrintRequest)
+    api.get(APIRoute.dayReportPrintRequests.pathComponents, use: dayReportPrintRequests)
     api.get(APIRoute.dayReport.pathComponents, use: dayReport)
 
     api.webSocket(APIRoute.webSocket.pathComponents) { request, socket in

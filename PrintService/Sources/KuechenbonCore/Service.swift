@@ -109,6 +109,10 @@ public final class Service {
         // der Stand von vor diesem Durchlauf — ein Auftrag, der zwischen `/sync`
         // und dieser Abfrage entstanden ist, käme mit dem neuen Stand nie an.
         druckeAufstellungen(since: state.lastSeq, now: now)
+        // Und die Statistik als Letztes: Sie ist der einzige Zettel, auf den
+        // niemand wartet — weder der Koch noch der Gast am Tisch. `state.lastSeq`
+        // ist auch hier noch der alte Stand, aus demselben Grund wie oben.
+        druckeTagesstatistiken(since: state.lastSeq, now: now)
 
         state.lastSeq = antwort.maxSeq
         state = state.pruned(now: now)
@@ -220,6 +224,64 @@ public final class Service {
             state.printRequests[auftrag.id] = now
             sichere()
             log.info("Aufstellung für Tisch \(job.tableNumber) gedruckt (\(job.items.count) Positionen).")
+        }
+    }
+
+    /// Wie `druckeAufstellungen`: ein Fehler bleibt folgenlos für den Durchlauf,
+    /// die Küchenbons sind längst gedruckt und gesichert.
+    ///
+    /// Der Bericht wird erst nach der Planung geholt und je Auftrag einzeln.
+    /// Scheitert genau dieser eine Abruf, wird nichts vermerkt — der Auftrag
+    /// steht im nächsten Delta wieder da und bekommt seinen Zettel dann. Würde
+    /// hier vermerkt, wäre die Statistik für immer weg.
+    private func druckeTagesstatistiken(since: Int, now: Date) {
+        let auftraege: [DayReportPrintRequestDTO]
+        do {
+            auftraege = try server.dayReportRequests(since: since)
+        } catch {
+            melde(error)
+            return
+        }
+        guard !auftraege.isEmpty else { return }
+
+        let ergebnis = BonPlanner.dueDayReports(
+            requests: auftraege,
+            state: state,
+            config: config,
+            now: now
+        )
+        for warnung in ergebnis.warnings { log.warn(warnung) }
+        // Was der Planer selbst vermerkt hat, hängt an keinem Druck: zu alt,
+        // abgeschaltet oder längst erledigt.
+        state.dayReports = ergebnis.state.dayReports
+
+        ladeGeraeteFallsNoetig(deviceIds: ergebnis.due.map(\.deviceId))
+
+        for auftrag in ergebnis.due {
+            let bericht: DayReportDTO
+            do {
+                bericht = try server.dayReport(businessDay: auftrag.businessDay)
+            } catch {
+                melde(error)
+                return
+            }
+
+            let job = BonPlanner.planDayReport(
+                request: auftrag,
+                report: bericht,
+                deviceName: deviceNames[auftrag.deviceId],
+                config: config
+            )
+            do {
+                try printer.print(job, config: config)
+            } catch {
+                melde(error)
+                return
+            }
+            // Erst Papier, dann Zustand — aus demselben Grund wie bei `drucke`.
+            state.dayReports[auftrag.id] = now
+            sichere()
+            log.info("Tagesstatistik für Betriebstag \(auftrag.businessDay) gedruckt.")
         }
     }
 

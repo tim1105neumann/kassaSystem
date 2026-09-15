@@ -9,6 +9,8 @@ extension SettlementDTO: @retroactive Content {}
 extension SettlementConflictDTO: @retroactive Content {}
 extension PrintRequestDTO: @retroactive Content {}
 extension CreatePrintRequestRequest: @retroactive Content {}
+extension DayReportPrintRequestDTO: @retroactive Content {}
+extension CreateDayReportPrintRequestRequest: @retroactive Content {}
 extension SyncResponse: @retroactive Content {}
 extension LoginResponse: @retroactive Content {}
 extension ServerConfigDTO: @retroactive Content {}

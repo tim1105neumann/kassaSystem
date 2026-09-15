@@ -10,6 +10,7 @@ actor FakeKassaAPI: KassaAPI {
     private var lines: [UUID: OrderLineDTO] = [:]
     private var settlements: [UUID: SettlementDTO] = [:]
     private var printRequests: [UUID: CreatePrintRequestRequest] = [:]
+    private var dayReportPrintRequests: [UUID: CreateDayReportPrintRequestRequest] = [:]
     private var seq = 0
 
     /// Alle Aufrufe scheitern mit einem Netzfehler.
@@ -20,11 +21,13 @@ actor FakeKassaAPI: KassaAPI {
     var nextOrderLinesError: APIError?
     var nextSettlementError: APIError?
     var nextPrintRequestError: APIError?
+    var nextDayReportPrintError: APIError?
 
     private(set) var orderLineCallCount = 0
     private(set) var settlementCallCount = 0
     private(set) var voidCallCount = 0
     private(set) var printRequestCallCount = 0
+    private(set) var dayReportPrintCallCount = 0
 
     init(articles: [ArticleDTO] = FakeKassaAPI.defaultArticles) {
         self.articleCatalog = articles
@@ -40,12 +43,15 @@ actor FakeKassaAPI: KassaAPI {
     func setNextOrderLinesError(_ value: APIError?) { nextOrderLinesError = value }
     func setNextSettlementError(_ value: APIError?) { nextSettlementError = value }
     func setNextPrintRequestError(_ value: APIError?) { nextPrintRequestError = value }
+    func setNextDayReportPrintError(_ value: APIError?) { nextDayReportPrintError = value }
 
     var serverLineCount: Int { lines.count }
     func serverLine(id: UUID) -> OrderLineDTO? { lines[id] }
     var serverSettlementCount: Int { settlements.count }
     var serverPrintRequestCount: Int { printRequests.count }
     func serverPrintRequest(id: UUID) -> CreatePrintRequestRequest? { printRequests[id] }
+    var serverDayReportPrintCount: Int { dayReportPrintRequests.count }
+    func serverDayReportPrint(id: UUID) -> CreateDayReportPrintRequestRequest? { dayReportPrintRequests[id] }
 
     // MARK: - KassaAPI
 
@@ -158,6 +164,16 @@ actor FakeKassaAPI: KassaAPI {
             throw error
         }
         if printRequests[request.id] == nil { printRequests[request.id] = request }
+    }
+
+    func createDayReportPrintRequest(_ request: CreateDayReportPrintRequestRequest) async throws {
+        dayReportPrintCallCount += 1
+        try guardOnline()
+        if let error = nextDayReportPrintError {
+            nextDayReportPrintError = nil
+            throw error
+        }
+        if dayReportPrintRequests[request.id] == nil { dayReportPrintRequests[request.id] = request }
     }
 
     func dayReport(businessDay: String) async throws -> DayReportDTO {

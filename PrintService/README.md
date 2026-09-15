@@ -101,13 +101,16 @@ Servers, siehe `deploy/README.md`):
   "lineWidth": 48,
   "printOverviews": true,
   "maxOverviewAgeMinutes": 5,
-  "footerText": "Der Reinerlös geht an die Freiwillige Feuerwehr Oberdorf."
+  "footerText": "Der Reinerlös geht an die Freiwillige Feuerwehr Oberdorf.",
+  "printDayReports": true,
+  "maxDayReportAgeMinutes": 60,
+  "dayReportTopArticles": 10
 }
 ```
 
 Speichern mit `Strg+O`, `Enter`, schließen mit `Strg+X`.
 
-Die letzten drei Schlüssel betreffen die **Aufstellung** — den Zettel, den ein
+Drei dieser Schlüssel betreffen die **Aufstellung** — den Zettel, den ein
 Kellner in der App auf Knopfdruck auslöst, wenn ein Gast nachrechnen möchte
 (siehe Abschnitt 9):
 
@@ -119,6 +122,19 @@ Kellner in der App auf Knopfdruck auslöst, wenn ein Gast nachrechnen möchte
 
 Der Hinweis, dass die Aufstellung keine Rechnung ist, steht **fest im
 Programm** und lässt sich hier nicht abschalten.
+
+Die drei letzten Schlüssel betreffen die **Tagesstatistik** — den Zettel, den
+der Wirt im Tagesabschluss auslöst, um die Kassa nachzuzählen (siehe
+Abschnitt 10):
+
+| Schlüssel | Bedeutung |
+|---|---|
+| `printDayReports` | Auf `false` gesetzt, druckt der Dienst gar keine Tagesstatistiken mehr. Notausschalter wie `printOverviews`. |
+| `maxDayReportAgeMinutes` | Statistiken, die älter sind, werden verworfen. Eine Stunde: Der Wirt wartet nicht wie der Gast am Tisch, aber eine Statistik, die nach einem nächtlichen Ausfall am nächsten Vormittag herauskommt, hat auch niemand mehr bestellt. Länger als `maxOverviewAgeMinutes`, kürzer als `maxBonAgeMinutes`. |
+| `dayReportTopArticles` | Wie viele der meistverkauften Artikel auf den Zettel kommen. Der Katalog hat rund 30 Zeilen — die volle Liste machte aus der Statistik eine Preisliste. |
+
+Auch hier gilt: Der Hinweis, dass die Tagesstatistik kein Beleg und kein
+Kassenabschluss ist, steht **fest im Programm**.
 
 **Rechte einschränken — das ist wichtig, nicht optional:**
 
@@ -382,7 +398,9 @@ tail -100 /usr/local/kuechenbon/kuechenbon.log
 
 Der Küchenbon-Dienst **liest nur** vom Kassaserver. Er kann keine
 Bestellung anlegen, ändern oder löschen und hat auf den Kassenstand selbst
-keinerlei Schreibzugriff.
+keinerlei Schreibzugriff. Das gilt auch für die Tagesstatistik: Der Dienst
+holt sich die Zahlen im Moment des Drucks selbst vom Server und friert nichts
+ein — es entsteht nirgends ein gespeicherter Tagesabschluss.
 
 **Fällt der alte Mac aus** (Stromausfall, Absturz, Drucker kaputt), läuft
 die Kassa an den iPhones **unverändert weiter** — kassiert wird ganz normal,
@@ -417,6 +435,41 @@ Funktion mit `"printOverviews": false` (siehe Abschnitt 2).
 Die Aufstellung ist **kein Beleg**: keine Signatur, keine Nummer, kein
 revisionssicheres Protokoll. Sie sagt das auch selbst — der Hinweis darauf
 steht fest im Programm und lässt sich nicht wegkonfigurieren.
+
+## 10. Die Tagesstatistik für den Wirt
+
+Der dritte Zettel, den dieser Drucker ausgibt, ist die **Tagesstatistik**. Der
+Wirt löst sie im Tagesabschluss-Bildschirm der App aus, meist am Ende des
+Abends, um die Kassa nachzuzählen. Darauf stehen Umsatz, Trinkgeld, was
+zusammen in der Kassa liegen muss, die Anzahl der Kassiervorgänge, die Summen
+je Kategorie und die meistverkauften Artikel.
+
+**Für die Küche wichtig — auch das ist keine Bestellung.** Der Zettel trägt in
+großer Schrift `TAGESSTATISTIK` und darunter den Betriebstag. Das Wort „Tisch"
+steht nirgends darauf. Es ist nichts zu kochen.
+
+**Auch die Tagesstatistik trägt keine Bon-Nummer**, aus demselben Grund wie die
+Aufstellung: Die fortlaufende Nummer der Küchenbons ist das Mittel, mit dem in
+der Küche ein fehlender Bon auffällt. Zählte die Statistik mit, entstünden in
+dieser Reihe Lücken, hinter denen nichts steckt.
+
+**Es lässt sich auch ein zurückliegender Betriebstag drucken.** Der Wirt wählt
+im Bildschirm das Datum, gedruckt wird genau dieser Tag. Die Zahlen rechnet der
+Server im Moment des Drucks aus — es wird nichts gespeichert und nichts
+eingefroren.
+
+**Ist der Auftrag älter als 60 Minuten, wird er nicht mehr gedruckt.** Das ist
+deutlich länger als bei der Aufstellung (fünf Minuten), weil hier niemand am
+Tisch wartet — aber kurz genug, dass eine vor einem nächtlichen Ausfall
+ausgelöste Statistik nicht am nächsten Vormittag aus dem Drucker kommt.
+Einstellbar über `maxDayReportAgeMinutes`, ganz abschalten lässt sich die
+Funktion mit `"printDayReports": false` (siehe Abschnitt 2).
+
+Die Tagesstatistik ist **kein Beleg und kein Kassenabschluss**: keine Signatur,
+keine Nummer, kein revisionssicheres Protokoll. Derselbe Tag lässt sich beliebig
+oft drucken, und wenn zwischendurch nachkassiert wurde, stehen beim zweiten Mal
+andere Zahlen darauf. Der Hinweis darauf steht fest im Programm und lässt sich
+nicht wegkonfigurieren.
 
 ## Zwei weitere Dinge, die man kennen sollte
 

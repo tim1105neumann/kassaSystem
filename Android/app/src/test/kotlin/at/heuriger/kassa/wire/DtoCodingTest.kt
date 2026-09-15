@@ -262,6 +262,43 @@ class DtoCodingTest {
     }
 
     @Test
+    fun `Statistik-Druckauftrag ueberlebt einen JSON-Rundlauf unveraendert`() {
+        val original = CreateDayReportPrintRequestRequest(
+            id = UUID.randomUUID(),
+            businessDay = "2026-05-28",
+            requestedAt = referenceInstant,
+        )
+        val encoded = json.encodeToString(CreateDayReportPrintRequestRequest.serializer(), original)
+
+        // Die Swift-Schreibweise ist Vertrag: `businessDay`, ISO-8601 in UTC.
+        assertTrue(encoded.contains("\"businessDay\":\"2026-05-28\""))
+        assertTrue(encoded.contains(referenceIso))
+
+        val decoded = json.decodeFromString(CreateDayReportPrintRequestRequest.serializer(), encoded)
+        assertEquals(original, decoded)
+    }
+
+    /** Traegt keine Zahlen — der Druckdienst holt den Bericht selbst. */
+    @Test
+    fun `angelegter Statistik-Druckauftrag ueberlebt den Rundlauf`() {
+        val original = DayReportPrintRequestDto(
+            id = UUID.randomUUID(),
+            businessDay = "2026-05-28",
+            requestedAt = referenceInstant,
+            deviceId = "device-a",
+            updatedSeq = 17,
+        )
+        val encoded = json.encodeToString(DayReportPrintRequestDto.serializer(), original)
+
+        assertTrue(encoded.contains("\"deviceId\":\"device-a\""))
+        assertTrue(encoded.contains("\"updatedSeq\":17"))
+        assertTrue(encoded.contains(referenceIso))
+
+        val decoded = json.decodeFromString(DayReportPrintRequestDto.serializer(), encoded)
+        assertEquals(original, decoded)
+    }
+
+    @Test
     fun `Konfliktantwort transportiert die betroffenen Zeilen`() {
         val id = UUID.randomUUID()
         val original = SettlementConflictDto(

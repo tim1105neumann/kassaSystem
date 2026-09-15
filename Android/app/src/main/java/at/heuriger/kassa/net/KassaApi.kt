@@ -1,10 +1,12 @@
 package at.heuriger.kassa.net
 
 import at.heuriger.kassa.wire.ArticleDto
+import at.heuriger.kassa.wire.CreateDayReportPrintRequestRequest
 import at.heuriger.kassa.wire.CreateOrderLinesRequest
 import at.heuriger.kassa.wire.CreatePrintRequestRequest
 import at.heuriger.kassa.wire.CreateSettlementRequest
 import at.heuriger.kassa.wire.DayReportDto
+import at.heuriger.kassa.wire.DayReportPrintRequestDto
 import at.heuriger.kassa.wire.LoginResponse
 import at.heuriger.kassa.wire.PrintRequestDto
 import at.heuriger.kassa.wire.ServerConfigDto
@@ -42,6 +44,16 @@ interface KassaApi {
      * sie gleich darauf ueber /sync wieder holen zu muessen.
      */
     suspend fun createPrintRequest(request: CreatePrintRequestRequest): PrintRequestDto
+
+    /**
+     * Dieselbe Abweichung vom Swift-Protokoll wie bei [createPrintRequest]: der
+     * Server antwortet mit dem angelegten [DayReportPrintRequestDto], und das
+     * wegzuwerfen hiesse, die vergebene `updatedSeq` und die Geraete-ID gleich
+     * darauf wieder holen zu muessen.
+     */
+    suspend fun createDayReportPrintRequest(
+        request: CreateDayReportPrintRequestRequest,
+    ): DayReportPrintRequestDto
 
     suspend fun dayReport(businessDay: String): DayReportDto
 

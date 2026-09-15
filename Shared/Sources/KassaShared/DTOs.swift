@@ -315,6 +315,50 @@ public struct PrintRequestDTO: Codable, Hashable, Sendable, Identifiable {
     public var total: Money { Money(cents: totalCents) }
 }
 
+// MARK: - Druckauftrag Tagesstatistik
+
+public struct CreateDayReportPrintRequestRequest: Codable, Hashable, Sendable {
+    /// Vom Client vergeben, idempotent wie überall — ein zweimal gedrückter Knopf
+    /// darf keinen zweiten Zettel erzeugen.
+    public var id: UUID
+    /// "yyyy-MM-dd", der im DatePicker gewählte Betriebstag. Gedruckt wird, was
+    /// am Bildschirm steht, nicht zwingend der heutige Tag.
+    public var businessDay: String
+    public var requestedAt: Date
+
+    public init(id: UUID, businessDay: String, requestedAt: Date) {
+        self.id = id
+        self.businessDay = businessDay
+        self.requestedAt = requestedAt
+    }
+}
+
+/// Trägt bewusst keine Zahlen. Der Bericht wird nicht eingefroren, sondern vom
+/// Druckdienst über `GET /reports/day` frisch geholt — ein gespeicherter
+/// Umsatz-Schnappschuss wäre eine zweite Wahrheit neben der berechneten und käme
+/// einem Journal näher, als dieses System je sein will.
+public struct DayReportPrintRequestDTO: Codable, Hashable, Sendable, Identifiable {
+    public var id: UUID
+    public var businessDay: String
+    public var requestedAt: Date
+    public var deviceId: String
+    public var updatedSeq: Int
+
+    public init(
+        id: UUID,
+        businessDay: String,
+        requestedAt: Date,
+        deviceId: String,
+        updatedSeq: Int
+    ) {
+        self.id = id
+        self.businessDay = businessDay
+        self.requestedAt = requestedAt
+        self.deviceId = deviceId
+        self.updatedSeq = updatedSeq
+    }
+}
+
 // MARK: - Sync
 
 public struct SyncResponse: Codable, Sendable {

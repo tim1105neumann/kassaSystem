@@ -105,4 +105,55 @@ class PrintRequestTest {
         assertEquals("Server-Fehler 503: Drucker offline", message)
         assertEquals(0, env.api.serverPrintRequestCount())
     }
+
+    // MARK: - Tagesstatistik
+
+    @Test
+    fun `die Tagesstatistik geht direkt ans Netz, nicht ueber die Queue`() = runBlocking {
+        env.seedCatalog()
+        env.book(table = 12, articleId = "b1", qty = 2)
+        env.engine.syncNow()
+        assertEquals(0, env.store.openPendingCount())
+
+        val error = env.session.printDayReport("2026-09-13")
+
+        assertNull("Erfolg meldet keine Nachricht", error)
+        assertEquals(1, env.api.serverDayReportPrintRequestCount())
+        assertEquals(
+            "der Druck landet nie in der Warteschlange",
+            0,
+            env.store.openPendingCount(),
+        )
+    }
+
+    /** Der Auftrag traegt nur den Tag — die Zahlen holt sich der Druckdienst selbst. */
+    @Test
+    fun `der Auftrag traegt den gewaehlten Betriebstag`() = runBlocking {
+        assertNull(env.session.printDayReport("2026-09-12"))
+
+        val request = env.api.serverDayReportPrintRequests().single()
+        assertEquals("2026-09-12", request.businessDay)
+        assertEquals(FakeKassaApi.DEVICE_ID, request.deviceId)
+    }
+
+    @Test
+    fun `jede gedruckte Tagesstatistik bekommt eine neue ID`() = runBlocking {
+        env.session.printDayReport("2026-09-13")
+        env.session.printDayReport("2026-09-13")
+
+        assertEquals(2, env.api.dayReportPrintRequestCallCount())
+        assertEquals("zwei Knopfdruecke, zwei Zettel", 2, env.api.serverDayReportPrintRequestCount())
+    }
+
+    @Test
+    fun `eine abgelehnte Tagesstatistik liefert die deutsche Meldung`() = runBlocking {
+        env.api.setNextDayReportPrintRequestError(
+            ApiException.Server(status = 503, reason = "Drucker offline")
+        )
+
+        val message = env.session.printDayReport("2026-09-13")
+
+        assertEquals("Server-Fehler 503: Drucker offline", message)
+        assertEquals(0, env.api.serverDayReportPrintRequestCount())
+    }
 }

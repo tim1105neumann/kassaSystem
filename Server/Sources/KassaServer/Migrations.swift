@@ -126,3 +126,24 @@ struct CreatePrintRequests: AsyncMigration {
         try await database.schema(PrintRequest.schema).delete()
     }
 }
+
+struct CreateDayReportPrintRequests: AsyncMigration {
+    func prepare(on database: any Database) async throws {
+        try await database.schema(DayReportPrintRequest.schema)
+            .field(.id, .uuid, .identifier(auto: false))
+            .field("business_day", .string, .required)
+            .field("requested_at", .datetime, .required)
+            .field("device_id", .string, .required)
+            .field("updated_seq", .int, .required)
+            .create()
+
+        // Wie bei den Aufstellungen: der Dienst pollt ausschließlich über updated_seq.
+        if let sql = database as? any SQLDatabase {
+            try await sql.raw("CREATE INDEX day_report_print_requests_updated_seq ON day_report_print_requests (updated_seq)").run()
+        }
+    }
+
+    func revert(on database: any Database) async throws {
+        try await database.schema(DayReportPrintRequest.schema).delete()
+    }
+}

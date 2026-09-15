@@ -14,6 +14,11 @@ public protocol KassaServerAccess: AnyObject {
     func devices() throws -> [DeviceDTO]
     func sync(since: Int) throws -> SyncResponse
     func printRequests(since: Int) throws -> [PrintRequestDTO]
+    func dayReportRequests(since: Int) throws -> [DayReportPrintRequestDTO]
+    /// Der Auftrag trägt nur den Betriebstag; die Zahlen holt sich der Dienst
+    /// hier selbst. Deshalb zwei Methoden statt einer: der Server friert keinen
+    /// Bericht ein, es gibt nur die eine berechnete Wahrheit.
+    func dayReport(businessDay: String) throws -> DayReportDTO
 }
 
 public enum HTTPError: Error, LocalizedError, Equatable {
@@ -113,6 +118,16 @@ public final class HTTPClient: KassaServerAccess {
 
     public func printRequests(since: Int) throws -> [PrintRequestDTO] {
         try angemeldet(pfad: "\(APIRoute.printRequests)?since=\(since)")
+    }
+
+    public func dayReportRequests(since: Int) throws -> [DayReportPrintRequestDTO] {
+        try angemeldet(pfad: "\(APIRoute.dayReportPrintRequests)?since=\(since)")
+    }
+
+    public func dayReport(businessDay: String) throws -> DayReportDTO {
+        // Der Parameter heißt am Server `date` und nicht `businessDay` — die
+        // Route ist die bestehende, an der auch die beiden Apps hängen.
+        try angemeldet(pfad: "\(APIRoute.dayReport)?date=\(businessDay)")
     }
 
     // MARK: - Anfragen mit Token

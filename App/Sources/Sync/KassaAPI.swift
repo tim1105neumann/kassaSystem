@@ -11,6 +11,7 @@ protocol KassaAPI: Sendable {
     func voidLine(id: UUID) async throws
     func createSettlement(_ request: CreateSettlementRequest) async throws -> SettlementDTO
     func createPrintRequest(_ request: CreatePrintRequestRequest) async throws
+    func createDayReportPrintRequest(_ request: CreateDayReportPrintRequestRequest) async throws
     func dayReport(businessDay: String) async throws -> DayReportDTO
     /// Push-Signal „es gibt Neues“. Der Stream endet, wenn die Verbindung
     /// abreißt; der Aufrufer baut sie dann neu auf.

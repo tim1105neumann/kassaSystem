@@ -134,6 +134,9 @@
     <string name="report_a11y_total">Umsatz %1$s, %2$s</string>
     <string name="report_a11y_row">%1$s, %2$s</string>
     <string name="report_a11y_loading">Bericht wird geladen</string>
+    <string name="report_print">Tagesstatistik drucken</string>
+    <string name="report_a11y_print">Tagesstatistik auf dem Küchendrucker ausdrucken</string>
+    <string name="report_print_done">Statistik liegt beim Küchendrucker</string>
 
     <!-- Einstellungen -->
     <string name="settings_section_connection">Verbindung</string>

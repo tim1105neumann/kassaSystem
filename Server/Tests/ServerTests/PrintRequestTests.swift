@@ -228,3 +228,130 @@ struct PrintRequestTests {
         }
     }
 }
+
+@Suite("Druckauftrag Tagesstatistik")
+struct DayReportPrintRequestTests {
+    /// Schickt bewusst ein `deviceId` mit, das im echten DTO gar nicht vorkommt —
+    /// nur so lässt sich prüfen, dass der Server den Körper dabei ignoriert.
+    private struct RequestWithDeviceId: Encodable {
+        var id: UUID
+        var businessDay: String
+        var requestedAt: Date
+        var deviceId: String
+    }
+
+    @Test("Derselbe Statistik-Auftrag zweimal erzeugt genau einen Datensatz")
+    func idempotentDayReportPrintRequest() async throws {
+        try await withKassaApp { harness in
+            let token = try await harness.login().token
+            let request = CreateDayReportPrintRequestRequest(
+                id: UUID(), businessDay: "2026-09-05", requestedAt: Date()
+            )
+
+            let first = try await harness.send(.POST, APIRoute.dayReportPrintRequests, token: token, body: request)
+            let second = try await harness.send(.POST, APIRoute.dayReportPrintRequests, token: token, body: request)
+
+            #expect(first.status == .ok)
+            #expect(second.status == .ok)
+
+            // Gleiche updatedSeq: der zweite Versuch legt nicht nur keine zweite
+            // Zeile an, er rückt den Auftrag auch nicht im Delta nach vorn.
+            let firstDTO = try harness.decode(DayReportPrintRequestDTO.self, from: first)
+            let secondDTO = try harness.decode(DayReportPrintRequestDTO.self, from: second)
+            #expect(firstDTO == secondDTO)
+            #expect(firstDTO.updatedSeq == secondDTO.updatedSeq)
+            #expect(try await DayReportPrintRequest.query(on: harness.db).count() == 1)
+        }
+    }
+
+    @Test("Ein unsinniger Betriebstag wird abgewiesen")
+    func invalidBusinessDayRejected() async throws {
+        try await withKassaApp { harness in
+            let token = try await harness.login().token
+
+            for unsinn in ["morgen", "", "2026-13-99-01"] {
+                let response = try await harness.send(
+                    .POST, APIRoute.dayReportPrintRequests, token: token,
+                    body: CreateDayReportPrintRequestRequest(id: UUID(), businessDay: unsinn, requestedAt: Date())
+                )
+                #expect(response.status == .badRequest)
+            }
+            #expect(try await DayReportPrintRequest.query(on: harness.db).count() == 0)
+        }
+    }
+
+    @Test("Die Geräte-ID kommt aus dem Token, nicht aus dem Körper")
+    func deviceIdComesFromToken() async throws {
+        try await withKassaApp { harness in
+            let wirt = try await harness.login(deviceName: "iPad Wirt")
+
+            let response = try await harness.send(
+                .POST, APIRoute.dayReportPrintRequests, token: wirt.token,
+                body: RequestWithDeviceId(
+                    id: UUID(), businessDay: "2026-09-05", requestedAt: Date(),
+                    deviceId: "fremdes-geraet"
+                )
+            )
+            #expect(response.status == .ok)
+
+            let dto = try harness.decode(DayReportPrintRequestDTO.self, from: response)
+            #expect(dto.deviceId == wirt.deviceId)
+            #expect(dto.deviceId != "fremdes-geraet")
+        }
+    }
+
+    @Test("GET liefert nur Statistik-Aufträge nach der übergebenen Sequenznummer")
+    func sinceReturnsOnlyNewer() async throws {
+        try await withKassaApp { harness in
+            let token = try await harness.login().token
+
+            let first = try await harness.send(
+                .POST, APIRoute.dayReportPrintRequests, token: token,
+                body: CreateDayReportPrintRequestRequest(id: UUID(), businessDay: "2026-09-05", requestedAt: Date())
+            )
+            #expect(first.status == .ok)
+            let firstDTO = try harness.decode(DayReportPrintRequestDTO.self, from: first)
+
+            let second = try await harness.send(
+                .POST, APIRoute.dayReportPrintRequests, token: token,
+                body: CreateDayReportPrintRequestRequest(id: UUID(), businessDay: "2026-09-06", requestedAt: Date())
+            )
+            #expect(second.status == .ok)
+            let secondDTO = try harness.decode(DayReportPrintRequestDTO.self, from: second)
+
+            let all = try await harness.send(.GET, "\(APIRoute.dayReportPrintRequests)?since=0", token: token)
+            #expect(all.status == .ok)
+            #expect(try harness.decode([DayReportPrintRequestDTO].self, from: all).map(\.id) == [firstDTO.id, secondDTO.id])
+
+            let newer = try await harness.send(.GET, "\(APIRoute.dayReportPrintRequests)?since=\(firstDTO.updatedSeq)", token: token)
+            #expect(newer.status == .ok)
+            #expect(try harness.decode([DayReportPrintRequestDTO].self, from: newer).map(\.id) == [secondDTO.id])
+
+            let none = try await harness.send(.GET, "\(APIRoute.dayReportPrintRequests)?since=\(secondDTO.updatedSeq)", token: token)
+            #expect(none.status == .ok)
+            #expect(try harness.decode([DayReportPrintRequestDTO].self, from: none).isEmpty)
+        }
+    }
+
+    /// Die Trennung der beiden Ströme ist die Zusicherung an einen alten
+    /// Druckdienst am Küchen-Mac: Er pollt weiter `/print-requests` und darf dort
+    /// nie eine Statistik-Zeile finden, die er als „Aufstellung Tisch 0" mit
+    /// leeren Positionen ausdruckt.
+    @Test("Ein Statistik-Auftrag taucht nicht bei den Aufstellungen auf")
+    func streamsStaySeparate() async throws {
+        try await withKassaApp { harness in
+            let token = try await harness.login().token
+
+            let created = try await harness.send(
+                .POST, APIRoute.dayReportPrintRequests, token: token,
+                body: CreateDayReportPrintRequestRequest(id: UUID(), businessDay: "2026-09-05", requestedAt: Date())
+            )
+            #expect(created.status == .ok)
+
+            let aufstellungen = try await harness.send(.GET, "\(APIRoute.printRequests)?since=0", token: token)
+            #expect(aufstellungen.status == .ok)
+            #expect(try harness.decode([PrintRequestDTO].self, from: aufstellungen).isEmpty)
+            #expect(try await PrintRequest.query(on: harness.db).count() == 0)
+        }
+    }
+}

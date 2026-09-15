@@ -4,10 +4,12 @@ import at.heuriger.kassa.net.ApiException
 import at.heuriger.kassa.net.KassaApi
 import at.heuriger.kassa.wire.ArticleDto
 import at.heuriger.kassa.wire.BusinessDay
+import at.heuriger.kassa.wire.CreateDayReportPrintRequestRequest
 import at.heuriger.kassa.wire.CreateOrderLinesRequest
 import at.heuriger.kassa.wire.CreatePrintRequestRequest
 import at.heuriger.kassa.wire.CreateSettlementRequest
 import at.heuriger.kassa.wire.DayReportDto
+import at.heuriger.kassa.wire.DayReportPrintRequestDto
 import at.heuriger.kassa.wire.KassaClock
 import at.heuriger.kassa.wire.LoginResponse
 import at.heuriger.kassa.wire.OrderLineDto
@@ -41,6 +43,7 @@ class FakeKassaApi(articles: List<ArticleDto> = DEFAULT_ARTICLES) : KassaApi {
     private val lines = linkedMapOf<UUID, OrderLineDto>()
     private val settlements = linkedMapOf<UUID, SettlementDto>()
     private val printRequests = linkedMapOf<UUID, CreatePrintRequestRequest>()
+    private val dayReportPrintRequests = linkedMapOf<UUID, DayReportPrintRequestDto>()
     private var seq = 0
 
     /** Alle Aufrufe scheitern mit einem Netzfehler. */
@@ -55,11 +58,13 @@ class FakeKassaApi(articles: List<ArticleDto> = DEFAULT_ARTICLES) : KassaApi {
     private var nextOrderLinesError: ApiException? = null
     private var nextSettlementError: ApiException? = null
     private var nextPrintRequestError: ApiException? = null
+    private var nextDayReportPrintRequestError: ApiException? = null
 
     private var orderLineCalls = 0
     private var settlementCalls = 0
     private var voidCalls = 0
     private var printRequestCalls = 0
+    private var dayReportPrintRequestCalls = 0
     private var syncCalls = 0
 
     /** Push-Kanal, den ein Test selbst bedienen kann. */
@@ -87,6 +92,9 @@ class FakeKassaApi(articles: List<ArticleDto> = DEFAULT_ARTICLES) : KassaApi {
     suspend fun setNextPrintRequestError(value: ApiException?) =
         lock.withLock { nextPrintRequestError = value }
 
+    suspend fun setNextDayReportPrintRequestError(value: ApiException?) =
+        lock.withLock { nextDayReportPrintRequestError = value }
+
     // MARK: - Abfragen
 
     suspend fun serverLineCount(): Int = lock.withLock { lines.size }
@@ -100,6 +108,12 @@ class FakeKassaApi(articles: List<ArticleDto> = DEFAULT_ARTICLES) : KassaApi {
     suspend fun serverPrintRequest(id: UUID): CreatePrintRequestRequest? =
         lock.withLock { printRequests[id] }
 
+    suspend fun serverDayReportPrintRequestCount(): Int =
+        lock.withLock { dayReportPrintRequests.size }
+
+    suspend fun serverDayReportPrintRequests(): List<DayReportPrintRequestDto> =
+        lock.withLock { dayReportPrintRequests.values.toList() }
+
     suspend fun orderLineCallCount(): Int = lock.withLock { orderLineCalls }
 
     suspend fun settlementCallCount(): Int = lock.withLock { settlementCalls }
@@ -107,6 +121,9 @@ class FakeKassaApi(articles: List<ArticleDto> = DEFAULT_ARTICLES) : KassaApi {
     suspend fun voidCallCount(): Int = lock.withLock { voidCalls }
 
     suspend fun printRequestCallCount(): Int = lock.withLock { printRequestCalls }
+
+    suspend fun dayReportPrintRequestCallCount(): Int =
+        lock.withLock { dayReportPrintRequestCalls }
 
     suspend fun syncCallCount(): Int = lock.withLock { syncCalls }
 
@@ -250,6 +267,32 @@ class FakeKassaApi(articles: List<ArticleDto> = DEFAULT_ARTICLES) : KassaApi {
                 updatedSeq = seq,
             )
         }
+
+    override suspend fun createDayReportPrintRequest(
+        request: CreateDayReportPrintRequestRequest,
+    ): DayReportPrintRequestDto = lock.withLock {
+        dayReportPrintRequestCalls += 1
+        guardOnline()
+        nextDayReportPrintRequestError?.let {
+            nextDayReportPrintRequestError = null
+            throw it
+        }
+        // Idempotent auf der Client-ID: derselbe Auftrag ergibt einen Zettel.
+        dayReportPrintRequests[request.id]?.let { return@withLock it }
+
+        seq += 1
+        val created = DayReportPrintRequestDto(
+            id = request.id,
+            businessDay = request.businessDay,
+            requestedAt = request.requestedAt,
+            // Wie der echte Server: die Geraete-ID kommt aus dem Token, nie aus
+            // dem Koerper.
+            deviceId = DEVICE_ID,
+            updatedSeq = seq,
+        )
+        dayReportPrintRequests[request.id] = created
+        created
+    }
 
     override suspend fun dayReport(businessDay: String): DayReportDto = lock.withLock {
         guardOnline()
