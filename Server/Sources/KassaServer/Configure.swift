@@ -36,6 +36,7 @@ func configure(_ app: Application, kassa: KassaConfig) async throws {
     app.migrations.add(AddSettlementTip())
     app.migrations.add(CreatePrintRequests())
     app.migrations.add(AddOrderLineNote())
+    app.migrations.add(CreateDayReportPrintRequests())
     try await app.autoMigrate()
 
     app.asyncCommands.use(ImportPricesCommand(), as: "import-prices")

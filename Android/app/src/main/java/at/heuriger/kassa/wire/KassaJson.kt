@@ -31,6 +31,12 @@ object ApiRoute {
     const val ORDER_LINES = "orders/lines"
     const val SETTLEMENTS = "settlements"
     const val PRINT_REQUESTS = "print-requests"
+    /**
+     * Eigene Route, nicht `print-requests` mit einem `kind`-Feld: ein alter
+     * Druckdienst, der weiter nur `print-requests` pollt, darf eine
+     * Statistik-Zeile nie als "Aufstellung Tisch 0" ausdrucken.
+     */
+    const val DAY_REPORT_PRINT_REQUESTS = "print-requests/day-report"
     const val DAY_REPORT = "reports/day"
     const val DEVICES = "devices"
     const val WEB_SOCKET = "ws"

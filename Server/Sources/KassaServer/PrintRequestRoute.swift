@@ -108,3 +108,56 @@ func printRequests(request: Request) async throws -> [PrintRequestDTO] {
         .all()
         .map { try $0.dto() }
 }
+
+// MARK: - Tagesstatistik
+
+@Sendable
+func createDayReportPrintRequest(request: Request) async throws -> DayReportPrintRequestDTO {
+    let body = try request.content.decode(CreateDayReportPrintRequestRequest.self)
+    let deviceId = try request.device.requireID()
+
+    // `range(for:)` gibt für Unsinn nil zurück — sie *ist* damit schon die
+    // Prüfung, ein eigener Datumsparser wäre eine zweite Auslegung desselben
+    // Formats und könnte von der des Berichts abweichen.
+    guard BusinessDay.range(for: body.businessDay, cutoffHour: request.kassa.cutoffHour) != nil else {
+        throw Abort(.badRequest, reason: "Ungültiger Betriebstag")
+    }
+
+    return try await request.mutate { db, seq in
+        // Idempotent wie bei der Aufstellung: ein zweimal gedrückter Knopf darf
+        // keinen zweiten Zettel erzeugen.
+        if let existing = try await DayReportPrintRequest.find(body.id, on: db) {
+            return try existing.dto()
+        }
+
+        // Nur vier Spalten und kein Blick in die Kassiervorgänge: die
+        // Tagesaggregation läuft nicht unter der Schreibsperre, sonst blockierte
+        // sie währenddessen jede Buchung an jedem iPhone.
+        let printRequest = DayReportPrintRequest(
+            id: body.id,
+            businessDay: body.businessDay,
+            requestedAt: body.requestedAt,
+            deviceId: deviceId,
+            updatedSeq: seq
+        )
+        try await printRequest.create(on: db)
+
+        return try printRequest.dto()
+    }
+}
+
+/// Eigene Route statt eines `kind`-Felds in `/print-requests`: Der Küchen-Mac
+/// bekommt sein Binary von Hand, ein alter Dienst pollt also womöglich weiter
+/// die Aufstellungen. Er darf eine Statistik-Zeile nie geliefert bekommen und
+/// als „Aufstellung Tisch 0" mit leeren Positionen ausdrucken.
+///
+/// Wie bei `printRequests` ohne die `since == 0`-Sonderbehandlung von `/sync`.
+@Sendable
+func dayReportPrintRequests(request: Request) async throws -> [DayReportPrintRequestDTO] {
+    let since = request.query[Int.self, at: "since"] ?? 0
+    return try await DayReportPrintRequest.query(on: request.db)
+        .filter(\.$updatedSeq > since)
+        .sort(\.$updatedSeq)
+        .all()
+        .map { try $0.dto() }
+}

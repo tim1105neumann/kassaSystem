@@ -9,6 +9,14 @@ public enum BonRenderer {
     private static let hinweis = "Diese Aufstellung dient ausschließlich der "
         + "Nachvollziehbarkeit des Rechnungsbetrages und ist keine Rechnung."
 
+    /// Der zweite feste Hinweis, für die Tagesstatistik. Auch er gehört nicht in
+    /// die Konfiguration: Was der Zettel nicht ist, darf sich am Küchen-Mac
+    /// niemand wegkonfigurieren. Wieder ohne Paragraphenzeichen — das fehlt in
+    /// CP437 und käme als „?“ heraus.
+    private static let statistikHinweis = "Diese Übersicht ist eine interne Rechenhilfe "
+        + "für den Wirt. Sie ist kein Beleg, kein Kassenabschluss im Sinne der "
+        + "Registrierkassenpflicht und nicht revisionssicher."
+
     /// Eine Zeile des Bons. Doppelt große Zeilen haben nur die halbe
     /// Spaltenzahl zur Verfügung — das muss schon beim Zentrieren stimmen,
     /// weil der Drucker nichts nachrückt.
@@ -65,13 +73,28 @@ public enum BonRenderer {
             // eine Bestellung halten, die noch zu kochen wäre.
             rows.append(Row(centered(spacedOut("AUFSTELLUNG"), in: headWidth), doubleSize: true))
             rows.append(Row(centered("Tisch \(job.tableNumber)", in: headWidth), doubleSize: true))
+        case .dayReport:
+            // Nicht gesperrt wie die anderen Köpfe: „T A G E S S T A T I S T I K“
+            // wären 27 Zeichen, doppelt groß stehen aber nur 24 zur Verfügung.
+            // Der Drucker rückt nichts nach, er bricht um — und der Kopf stünde
+            // zweizeilig da. Also bitte nicht „reparieren“.
+            rows.append(Row(centered("TAGESSTATISTIK", in: headWidth), doubleSize: true))
+            // Statt der Tischzeile der Betriebstag: so trägt der Zettel an keiner
+            // Stelle das Wort „Tisch“ und der Koch kann ihn mit nichts
+            // verwechseln. Das Datum muss ohnehin drauf, weil alte Tage
+            // nachdruckbar sind.
+            rows.append(Row(centered(betriebstag(job.statistics?.businessDay ?? ""), in: headWidth), doubleSize: true))
         }
 
         rows.append(Row(String(repeating: "=", count: width)))
+        // Den Kellner gibt es bei einer Tagesstatistik nicht — sie gehört dem
+        // Wirt, und das Gerät sagt ihm, von welchem Schirm aus er sie angefordert
+        // hat. Der einzige Unterschied im gemeinsamen Kopfblock.
+        let geraetLabel = job.kind == .dayReport ? "Gerät" : "Kellner"
         if let bonNumber = job.bonNumber {
             rows.append(Row(spread(left: "Bon \(bonNumber)", right: timestamp(job.time), in: width)))
             if let deviceName = job.deviceName {
-                rows.append(Row("Kellner: \(deviceName)"))
+                rows.append(Row("\(geraetLabel): \(deviceName)"))
             }
         } else if let deviceName = job.deviceName {
             // Ohne Bonnummer ist die Zeile frei — und der Kellner muss trotzdem
@@ -79,7 +102,7 @@ public enum BonRenderer {
             // Auf schmalem Papier bekommt er eine eigene, statt über den Rand
             // zu laufen.
             let zeit = timestamp(job.time)
-            let kellner = "Kellner: \(deviceName)"
+            let kellner = "\(geraetLabel): \(deviceName)"
             if zeit.count + kellner.count < width {
                 rows.append(Row(spread(left: zeit, right: kellner, in: width)))
             } else {
@@ -90,6 +113,12 @@ public enum BonRenderer {
             rows.append(Row(timestamp(job.time)))
         }
         rows.append(Row(String(repeating: "-", count: width)))
+
+        // Die Kennzahlen stehen dort, wo sonst die Positionen stehen — ein
+        // Statistik-Job hat keine, die Schleife darunter läuft für ihn leer.
+        if let statistik = job.statistics {
+            rows.append(contentsOf: kennzahlen(statistik, width: width))
+        }
 
         for item in job.items {
             let prefix = String(format: "%2dx  ", item.qty)
@@ -137,6 +166,9 @@ public enum BonRenderer {
         if job.kind == .overview {
             rows.append(contentsOf: abschluss(for: job, width: width, headWidth: headWidth))
         }
+        if let statistik = job.statistics {
+            rows.append(contentsOf: statistikbloecke(statistik, width: width, headWidth: headWidth))
+        }
         return rows
     }
 
@@ -157,6 +189,77 @@ public enum BonRenderer {
         }
         rows.append(Row(String(repeating: "=", count: width)))
         return rows
+    }
+
+    /// Die drei Zahlen, die der Wirt zuerst sucht. Sie bleiben auch an einem Tag
+    /// ohne Umsatz stehen: eine fehlende Zeile ließe offen, ob nichts kassiert
+    /// wurde oder ob der Zettel unvollständig ist.
+    private static func kennzahlen(_ statistik: BonJob.Statistics, width: Int) -> [Row] {
+        [
+            Row(spread(left: "Umsatz", right: "\(Money(cents: statistik.totalCents).formattedPlain) EUR", in: width)),
+            Row(spread(left: "Trinkgeld", right: "\(Money(cents: statistik.tipCents).formattedPlain) EUR", in: width)),
+            // Ohne EUR, weil es Stück sind — die Spalte bleibt trotzdem bündig.
+            Row(spread(left: "Kassiervorgänge", right: "\(statistik.settlementCount)", in: width))
+        ]
+    }
+
+    /// Kassa-Zeile, die beiden Aufschlüsselungen und der Hinweis. Leere
+    /// Abschnitte fallen samt Überschrift und Trennlinie weg: ein Tag ohne
+    /// Umsatz soll kein Gerüst aus leeren Strichen ergeben.
+    private static func statistikbloecke(_ statistik: BonJob.Statistics, width: Int, headWidth: Int) -> [Row] {
+        // `KASSA` und nicht `KASSA GESAMT`: das wären mit „12345,67 EUR“ schon
+        // 24 Zeichen ohne Lücke dazwischen, und die doppelt große Zeile bräche
+        // dem Wirt mitten in der Summe um. Die beiden Zeilen darüber sagen
+        // ohnehin unmissverständlich, was hier summiert wurde.
+        let kassa = Money(cents: statistik.totalCents + statistik.tipCents).formattedPlain
+        var rows: [Row] = [Row(spread(left: "KASSA", right: "\(kassa) EUR", in: headWidth), doubleSize: true)]
+
+        if !statistik.byCategory.isEmpty {
+            rows.append(Row(String(repeating: "-", count: width)))
+            rows.append(Row("NACH KATEGORIE"))
+            for eintrag in statistik.byCategory { rows.append(contentsOf: zeilen(for: eintrag, width: width)) }
+        }
+        if !statistik.topArticles.isEmpty {
+            rows.append(Row(String(repeating: "-", count: width)))
+            rows.append(Row("MEISTVERKAUFT"))
+            for eintrag in statistik.topArticles { rows.append(contentsOf: zeilen(for: eintrag, width: width)) }
+        }
+
+        rows.append(Row(String(repeating: "=", count: width)))
+        rows.append(contentsOf: eingerueckt(statistikHinweis, width: width))
+        rows.append(Row(String(repeating: "=", count: width)))
+        return rows
+    }
+
+    /// Eine Zeile der Aufschlüsselung. Ohne Menge — bei den Kategorien — beginnt
+    /// der Name dort, wo bei den Artikeln die Mengenspalte steht, damit beide
+    /// Blöcke dieselbe Kante haben.
+    private static func zeilen(for eintrag: BonJob.Statistics.Entry, width: Int) -> [Row] {
+        let prefix = eintrag.qty.map { String(format: "%4dx ", $0) } ?? "  "
+        let betrag = "\(Money(cents: eintrag.cents).formattedPlain) EUR"
+        let teile = wrapped(eintrag.label, to: width - prefix.count - betrag.count - 2)
+        return teile.enumerated().map { index, teil in
+            let links = index == 0 ? prefix + teil : String(repeating: " ", count: prefix.count) + teil
+            // Betrag auf die letzte Zeile, aus demselben Grund wie bei den Positionen.
+            return index == teile.count - 1 ? Row(spread(left: links, right: betrag, in: width)) : Row(links)
+        }
+    }
+
+    /// `2025-09-06` wird zu `Sa 06.09.2025`. Lässt sich der Tag nicht lesen,
+    /// wird er roh gedruckt: ein Zettel mit seltsamem Datum ist immer noch
+    /// brauchbar, einer ohne Datum nicht — und alte Tage sind nachdruckbar.
+    private static func betriebstag(_ tag: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "de_AT")
+        formatter.timeZone = TimeZone(identifier: "Europe/Vienna")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let datum = formatter.date(from: tag) else { return tag }
+
+        // Wochentagspunkt weg wie in `timestamp` — er kostet auf dem Bon nur Platz.
+        formatter.dateFormat = "EE"
+        let wochentag = formatter.string(from: datum).replacingOccurrences(of: ".", with: "")
+        formatter.dateFormat = "dd.MM.yyyy"
+        return "\(wochentag) \(formatter.string(from: datum))"
     }
 
     private static func eingerueckt(_ text: String, width: Int) -> [Row] {

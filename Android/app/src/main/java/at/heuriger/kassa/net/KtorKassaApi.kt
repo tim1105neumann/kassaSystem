@@ -3,10 +3,12 @@ package at.heuriger.kassa.net
 import at.heuriger.kassa.wire.ApiErrorDto
 import at.heuriger.kassa.wire.ApiRoute
 import at.heuriger.kassa.wire.ArticleDto
+import at.heuriger.kassa.wire.CreateDayReportPrintRequestRequest
 import at.heuriger.kassa.wire.CreateOrderLinesRequest
 import at.heuriger.kassa.wire.CreatePrintRequestRequest
 import at.heuriger.kassa.wire.CreateSettlementRequest
 import at.heuriger.kassa.wire.DayReportDto
+import at.heuriger.kassa.wire.DayReportPrintRequestDto
 import at.heuriger.kassa.wire.KassaJson
 import at.heuriger.kassa.wire.LoginRequest
 import at.heuriger.kassa.wire.LoginResponse
@@ -139,6 +141,15 @@ class KtorKassaApi(
         method = HttpMethod.Post,
         serializer = PrintRequestDto.serializer(),
         body = encode(CreatePrintRequestRequest.serializer(), request),
+    )
+
+    override suspend fun createDayReportPrintRequest(
+        request: CreateDayReportPrintRequestRequest,
+    ): DayReportPrintRequestDto = send(
+        route = ApiRoute.DAY_REPORT_PRINT_REQUESTS,
+        method = HttpMethod.Post,
+        serializer = DayReportPrintRequestDto.serializer(),
+        body = encode(CreateDayReportPrintRequestRequest.serializer(), request),
     )
 
     override suspend fun dayReport(businessDay: String): DayReportDto = send(

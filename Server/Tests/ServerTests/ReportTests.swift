@@ -31,9 +31,16 @@ struct ReportTests {
         #expect(response.status == .ok)
     }
 
+    /// Ein Jahr Toleranz wie in `SyncTests`: Die Zeitpunkte unten sind fest
+    /// verdrahtet, weil der Test genau die Betriebstag-Grenze prüft — relativ
+    /// zu `Date()` ließe sich „23:00 und 01:00 sind derselbe Tag" nicht mehr
+    /// ablesen. Mit der Standardtoleranz von 24 Stunden verwirft der Server sie,
+    /// sobald das Datum in der Vergangenheit liegt, und rechnet mit seiner
+    /// eigenen Uhr weiter; der Test schlüge dann nicht wegen der Grenze fehl,
+    /// sondern wegen des Kalenders.
     @Test("23:00 und 01:00 der Folgenacht sind derselbe Betriebstag, 07:00 nicht mehr")
     func businessDayCrossesMidnight() async throws {
-        try await withKassaApp(cutoffHour: 6) { harness in
+        try await withKassaApp(cutoffHour: 6, paidAtTolerance: 365 * 24 * 3600) { harness in
             try await harness.importPriceList()
             let token = try await harness.login().token
             let berner = try await harness.article(named: "Berner Würstel mit Gebäck", token: token)
@@ -59,9 +66,10 @@ struct ReportTests {
         }
     }
 
+    /// Toleranz wie oben, aus demselben Grund.
     @Test("Der Report summiert je Kategorie und nennt die Renner")
     func aggregates() async throws {
-        try await withKassaApp(cutoffHour: 6) { harness in
+        try await withKassaApp(cutoffHour: 6, paidAtTolerance: 365 * 24 * 3600) { harness in
             try await harness.importPriceList()
             let token = try await harness.login().token
             let berner = try await harness.article(named: "Berner Würstel mit Gebäck", token: token)      // Speisen, 620

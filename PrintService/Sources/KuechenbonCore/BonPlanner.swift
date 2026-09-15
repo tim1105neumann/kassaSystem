@@ -4,7 +4,7 @@ import KassaShared
 /// Ein druckfertiger Bon. Enthält nichts mehr, was noch nachgeschlagen
 /// werden müsste — der Renderer kommt ohne Katalog aus.
 public struct BonJob: Equatable, Sendable {
-    public enum Kind: String, Sendable { case order, cancellation, overview }
+    public enum Kind: String, Sendable { case order, cancellation, overview, dayReport }
 
     public struct Item: Equatable, Sendable {
         public var qty: Int
@@ -25,6 +25,49 @@ public struct BonJob: Equatable, Sendable {
         }
     }
 
+    /// Die Zahlen des Tagesabschlusses, nur bei `.dayReport` befüllt. Bewusst
+    /// nicht das `DayReportDTO` selbst: dann müsste der Renderer entscheiden,
+    /// wie viele Artikel auf den Zettel passen und was von den Kassiervorgängen
+    /// wegbleibt — und der Job wäre wieder etwas, das man nachschlagen muss.
+    public struct Statistics: Equatable, Sendable {
+        public struct Entry: Equatable, Sendable {
+            /// Kategorie- oder Artikelname, wörtlich wie ihn der Server liefert.
+            public var label: String
+            /// `nil` bei Kategorien — die zählen keine Stück.
+            public var qty: Int?
+            public var cents: Int
+
+            public init(label: String, qty: Int? = nil, cents: Int) {
+                self.label = label
+                self.qty = qty
+                self.cents = cents
+            }
+        }
+
+        public var businessDay: String
+        public var totalCents: Int
+        public var tipCents: Int
+        public var settlementCount: Int
+        public var byCategory: [Entry]
+        public var topArticles: [Entry]
+
+        public init(
+            businessDay: String,
+            totalCents: Int,
+            tipCents: Int,
+            settlementCount: Int,
+            byCategory: [Entry],
+            topArticles: [Entry]
+        ) {
+            self.businessDay = businessDay
+            self.totalCents = totalCents
+            self.tipCents = tipCents
+            self.settlementCount = settlementCount
+            self.byCategory = byCategory
+            self.topArticles = topArticles
+        }
+    }
+
     public var kind: Kind
     public var tableNumber: Int
     /// `nil` auf der Aufstellung: die fortlaufende Nummer ist das Mittel, mit
@@ -40,6 +83,8 @@ public struct BonJob: Equatable, Sendable {
     /// Nur bei `.overview` befüllt.
     public var totalCents: Int?
     public var footerText: String?
+    /// Nur bei `.dayReport` befüllt.
+    public var statistics: Statistics?
 
     public init(
         kind: Kind,
@@ -50,7 +95,8 @@ public struct BonJob: Equatable, Sendable {
         items: [Item],
         originalBonNumbers: [Int] = [],
         totalCents: Int? = nil,
-        footerText: String? = nil
+        footerText: String? = nil,
+        statistics: Statistics? = nil
     ) {
         self.kind = kind
         self.tableNumber = tableNumber
@@ -61,6 +107,24 @@ public struct BonJob: Equatable, Sendable {
         self.originalBonNumbers = originalBonNumbers
         self.totalCents = totalCents
         self.footerText = footerText
+        self.statistics = statistics
+    }
+}
+
+/// Das Gegenstück zu `PlannerResult` für die Tagesstatistik. Kein
+/// `PlannerResult`, weil hier noch keine Jobs entstehen können: Der Zettel
+/// braucht den Bericht vom Server, und den zu holen ist I/O — der Planer bliebe
+/// sonst nicht mehr rein.
+public struct DueDayReports: Equatable {
+    /// Die Aufträge, für die sich der Abruf des Berichts lohnt.
+    public var due: [DayReportPrintRequestDTO]
+    public var state: PrintState
+    public var warnings: [String]
+
+    public init(due: [DayReportPrintRequestDTO], state: PrintState, warnings: [String]) {
+        self.due = due
+        self.state = state
+        self.warnings = warnings
     }
 }
 
@@ -260,6 +324,92 @@ public enum BonPlanner {
         }
 
         return PlannerResult(jobs: jobs, state: state, warnings: warnings)
+    }
+
+    /// Erste Hälfte der Statistik-Planung: Welche Aufträge verdienen überhaupt
+    /// Papier? Rein und ohne Netz, damit die Sonderregeln testbar bleiben — und
+    /// damit der Dienst den Bericht nur für die Aufträge holt, die ihn brauchen.
+    /// Blind für jeden Auftrag zu holen hieße, ihn auch für längst gedruckte zu
+    /// holen.
+    ///
+    /// `state.nextBonNumber` bleibt unangetastet — siehe `BonJob.bonNumber`.
+    public static func dueDayReports(
+        requests: [DayReportPrintRequestDTO],
+        state: PrintState,
+        config: BonConfig,
+        now: Date
+    ) -> DueDayReports {
+        var state = state
+        var warnings: [String] = []
+        var due: [DayReportPrintRequestDTO] = []
+
+        let maxAge = TimeInterval(config.maxDayReportAgeMinutes * 60)
+
+        for request in requests {
+            // Wie bei der Aufstellung: der Auftrag kommt im nächsten Delta
+            // erneut, und nur dieser Vermerk verhindert den zweiten Zettel.
+            guard state.dayReports[request.id] == nil else { continue }
+
+            guard config.printDayReports else {
+                // Vermerk ohne Druck — ohne ihn stünde derselbe Auftrag bis zum
+                // Ende der Serveraufbewahrung in jedem Delta.
+                state.dayReports[request.id] = now
+                continue
+            }
+
+            if now.timeIntervalSince(request.requestedAt) > maxAge {
+                state.dayReports[request.id] = now
+                warnings.append(
+                    "Die Tagesstatistik für den Betriebstag \(request.businessDay) ist älter als "
+                    + "\(config.maxDayReportAgeMinutes) Minuten und wurde nicht gedruckt."
+                )
+                continue
+            }
+
+            due.append(request)
+        }
+
+        return DueDayReports(due: due, state: state, warnings: warnings)
+    }
+
+    /// Zweite Hälfte: aus Auftrag und inzwischen geholtem Bericht der fertige
+    /// Zettel. Wieder rein, damit die Kürzung auf die Spitzenreiter prüfbar
+    /// bleibt, ohne einen Server zu starten.
+    public static func planDayReport(
+        request: DayReportPrintRequestDTO,
+        report: DayReportDTO,
+        deviceName: String?,
+        config: BonConfig
+    ) -> BonJob {
+        BonJob(
+            kind: .dayReport,
+            // Die Tagesstatistik gehört zu keinem Tisch. Der Renderer druckt
+            // das Feld für diese Art nie — siehe die Kopfzeile dort.
+            tableNumber: 0,
+            bonNumber: nil,
+            // Zeitpunkt der Anforderung, nicht des Drucks: der Wirt erkennt
+            // daran, ob der Zettel zu seinem letzten Tippen gehört.
+            time: request.requestedAt,
+            deviceName: deviceName,
+            items: [],
+            statistics: BonJob.Statistics(
+                // Der angeforderte Betriebstag, nicht der aus dem Bericht:
+                // gedruckt wird, was am Bildschirm stand.
+                businessDay: request.businessDay,
+                totalCents: report.totalCents,
+                tipCents: report.tipCents,
+                settlementCount: report.settlementCount,
+                // Reihenfolge des Servers (alphabetisch) und Namen wörtlich wie
+                // von dort — die Umlaut-Tabelle der beiden Apps bekommt hier
+                // keine dritte Kopie.
+                byCategory: report.byCategory.map {
+                    BonJob.Statistics.Entry(label: $0.category, cents: $0.totalCents)
+                },
+                topArticles: report.topArticles.prefix(config.dayReportTopArticles).map {
+                    BonJob.Statistics.Entry(label: $0.name, qty: $0.qty, cents: $0.totalCents)
+                }
+            )
+        )
     }
 
     /// Positionen stehen in Buchungsreihenfolge auf dem Bon. Gleiche Zeitstempel

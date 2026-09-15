@@ -25,6 +25,7 @@ public enum APIRoute {
     public static let orderLines = "orders/lines"
     public static let settlements = "settlements"
     public static let printRequests = "print-requests"
+    public static let dayReportPrintRequests = "print-requests/day-report"
     public static let dayReport = "reports/day"
     public static let devices = "devices"
     public static let webSocket = "ws"

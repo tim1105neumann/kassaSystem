@@ -62,6 +62,12 @@ actor APIClient: KassaAPI {
         try await sendRaw(route: APIRoute.printRequests, method: "POST", body: try encode(request))
     }
 
+    /// Die Antwort trägt nur zurück, was wir gerade geschickt haben — der Zettel
+    /// entsteht erst beim Druckdienst. Also `sendRaw`, wie bei der Aufstellung.
+    func createDayReportPrintRequest(_ request: CreateDayReportPrintRequestRequest) async throws {
+        try await sendRaw(route: APIRoute.dayReportPrintRequests, method: "POST", body: try encode(request))
+    }
+
     func dayReport(businessDay: String) async throws -> DayReportDTO {
         try await send(
             route: APIRoute.dayReport,

@@ -33,6 +33,8 @@ Lösung.
 - **Rechnung teilen** — einzelne Positionen und Mengen separat kassieren
 - **Rückgeld-Rechner** — mit Schnellwahl für gängige Scheine
 - **Tagesabschluss** — Umsatz gesamt, je Kategorie, meistverkaufte Artikel
+- **Tagesstatistik auf Papier** — dieselben Zahlen auf Knopfdruck am
+  Küchendrucker, auch für zurückliegende Betriebstage
 - **Küchenbons** — bestellte Speisen laufen auf den Drucker in der Küche
 - **Aufstellung zum Nachrechnen** — auf Knopfdruck ein Zettel mit Positionen,
   Mengen und Summe, wenn ein Gast wissen will, wie der Betrag zustande kommt
@@ -40,10 +42,16 @@ Lösung.
 Bewusst nicht enthalten: signierte Belege und RKSV-Funktionen,
 Preislistenbearbeitung in der App, Benutzerkonten pro Person, Reservierungen.
 
-Die Aufstellung ist ausdrücklich **kein Beleg**: sie trägt keine Signatur, ist
-nicht nummeriert und wird nicht revisionssicher protokolliert. Sie steht dem
-Gast zum Nachrechnen zur Verfügung, mehr nicht — siehe den rechtlichen Hinweis
-oben.
+Beide gedruckten Zettel sind ausdrücklich **kein Beleg**: sie tragen keine
+Signatur, sind nicht nummeriert und werden nicht revisionssicher protokolliert.
+Die Aufstellung steht dem Gast zum Nachrechnen zur Verfügung, mehr nicht.
+
+Die Tagesstatistik ist zusätzlich **kein Tagesabschluss im Sinne der
+Registrierkassenpflicht und kein Z-Bon**. Sie ist eine interne Rechenhilfe für
+den Wirt: Derselbe Betriebstag lässt sich beliebig oft drucken, und wenn
+zwischendurch nachkassiert wurde, stehen beim zweiten Mal andere Zahlen darauf.
+Nichts daran wird abgeschlossen oder festgeschrieben — siehe den rechtlichen
+Hinweis oben.
 
 ## Aufbau
 

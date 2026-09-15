@@ -5,6 +5,7 @@ import at.heuriger.kassa.data.KassaStore
 import at.heuriger.kassa.data.SettingsStore
 import at.heuriger.kassa.net.ApiException
 import at.heuriger.kassa.net.KassaApi
+import at.heuriger.kassa.wire.CreateDayReportPrintRequestRequest
 import at.heuriger.kassa.wire.CreatePrintRequestRequest
 import at.heuriger.kassa.wire.DayReportDto
 import at.heuriger.kassa.wire.KassaClock
@@ -119,6 +120,28 @@ class SessionController(
                 id = UUID.randomUUID(),
                 tableNumber = tableNumber,
                 lines = selections,
+                requestedAt = KassaClock.now(),
+            )
+        )
+        null
+    } catch (error: ApiException) {
+        error.germanMessage
+    }
+
+    /**
+     * Tagesstatistik fuer den Wirt am Kuechendrucker.
+     *
+     * Geht wie [printOverview] bewusst **nicht** ueber die Offline-Queue: ohne
+     * Server gaebe es ohnehin keine Zahlen zum Drucken, eine stille
+     * Nachlieferung waere also nur eine Statistik, die niemand mehr bestellt
+     * hat. Ergebnis ist `null` bei Erfolg, sonst die Meldung fuer den Wirt.
+     */
+    suspend fun printDayReport(businessDay: String): String? = try {
+        apiProvider().createDayReportPrintRequest(
+            CreateDayReportPrintRequestRequest(
+                // Neue ID pro Druck — dieselbe ergaebe am Server nur einen Zettel.
+                id = UUID.randomUUID(),
+                businessDay = businessDay,
                 requestedAt = KassaClock.now(),
             )
         )

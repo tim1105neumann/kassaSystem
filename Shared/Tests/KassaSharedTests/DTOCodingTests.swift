@@ -193,6 +193,35 @@ struct DTOCodingTests {
         #expect(decoded.total.cents == 2980)
     }
 
+    @Test("Statistik-Anforderung überlebt einen JSON-Rundlauf unverändert")
+    func createDayReportPrintRequestRoundTrip() throws {
+        let original = CreateDayReportPrintRequestRequest(
+            id: UUID(),
+            businessDay: "2026-09-05",
+            requestedAt: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+        let data = try KassaJSON.encoder.encode(original)
+        #expect(String(decoding: data, as: UTF8.self).contains("2026-05-28T20:26:40Z"))
+        let decoded = try KassaJSON.decoder.decode(CreateDayReportPrintRequestRequest.self, from: data)
+        #expect(decoded == original)
+        #expect(decoded.businessDay == "2026-09-05")
+    }
+
+    @Test("Statistik-Druckauftrag überlebt den Rundlauf unverändert")
+    func dayReportPrintRequestRoundTrip() throws {
+        let original = DayReportPrintRequestDTO(
+            id: UUID(),
+            businessDay: "2026-09-05",
+            requestedAt: Date(timeIntervalSince1970: 1_780_000_000),
+            deviceId: "device-a",
+            updatedSeq: 21
+        )
+        let data = try KassaJSON.encoder.encode(original)
+        #expect(String(decoding: data, as: UTF8.self).contains("2026-05-28T20:26:40Z"))
+        let decoded = try KassaJSON.decoder.decode(DayReportPrintRequestDTO.self, from: data)
+        #expect(decoded == original)
+    }
+
     @Test("Konfliktantwort transportiert die betroffenen Zeilen")
     func conflictRoundTrip() throws {
         let id = UUID()

@@ -78,6 +78,66 @@ struct StateTests {
         #expect(sauber.printRequests[jung] != nil)
     }
 
+    @Test("Auch gedruckte Tagesstatistiken verschwinden nach vier Tagen aus dem Zustand")
+    func prunedRaeumtStatistikenAuf() {
+        let jetzt = wienerZeit(6, 23, 58)
+        let alt = UUID()
+        let jung = UUID()
+        let state = PrintState(dayReports: [
+            alt: jetzt.addingTimeInterval(-5 * 24 * 60 * 60),
+            jung: jetzt.addingTimeInterval(-60)
+        ])
+
+        let sauber = state.pruned(now: jetzt)
+        #expect(sauber.dayReports[alt] == nil)
+        #expect(sauber.dayReports[jung] != nil)
+    }
+
+    @Test("Eine Zustandsdatei aus der Zeit vor der Tagesstatistik lädt weiterhin fehlerfrei")
+    func alteZustandsdateiOhneDayReports() throws {
+        let pfad = NSTemporaryDirectory() + "kuechenbon-state-\(UUID().uuidString).json"
+        defer { try? FileManager.default.removeItem(atPath: pfad) }
+
+        let alt = PrintState(
+            lastSeq: 812,
+            nextBonNumber: 48,
+            token: "t-123",
+            deviceId: "d-anna",
+            lines: [UUID(): LineRecord(status: .printed, at: wienerZeit(6, 19, 42), bonNumber: 45)],
+            printRequests: [UUID(): wienerZeit(6, 19, 50)]
+        )
+        try alt.save(to: pfad)
+
+        // Genau die Datei, die am Küchen-Mac liegt: mit den Aufstellungen, aber
+        // ohne den Schlüssel, den es beim letzten Speichern noch nicht gab.
+        let datei = URL(fileURLWithPath: pfad)
+        var roh = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: datei)) as? [String: Any])
+        #expect(roh.removeValue(forKey: "dayReports") != nil)
+        try JSONSerialization.data(withJSONObject: roh).write(to: datei)
+
+        let geladen = try PrintState.load(from: pfad)
+        #expect(geladen == alt)
+        #expect(geladen.dayReports.isEmpty)
+    }
+
+    @Test("Eine Konfigdatei ohne die Statistik-Schlüssel lädt mit den Standardwerten")
+    func konfigOhneStatistikSchluessel() throws {
+        let pfad = NSTemporaryDirectory() + "kuechenbon-config-\(UUID().uuidString).json"
+        defer { try? FileManager.default.removeItem(atPath: pfad) }
+        try #"{"serverURL":"https://kassa.viennax.at","password":"geheim","printOverviews":false}"#
+            .write(toFile: pfad, atomically: true, encoding: .utf8)
+
+        let config = try BonConfig.load(from: pfad)
+        #expect(config.printOverviews == false)
+        #expect(config.printDayReports)
+        // Länger als die fünf Minuten der Aufstellung, kürzer als die zwei
+        // Stunden des Küchenbons.
+        #expect(config.maxDayReportAgeMinutes == 60)
+        #expect(config.maxDayReportAgeMinutes > config.maxOverviewAgeMinutes)
+        #expect(config.maxDayReportAgeMinutes < config.maxBonAgeMinutes)
+        #expect(config.dayReportTopArticles == 10)
+    }
+
     @Test("Eine Zustandsdatei aus der Zeit vor den Aufstellungen lädt weiterhin fehlerfrei")
     func alteZustandsdateiOhnePrintRequests() throws {
         let pfad = NSTemporaryDirectory() + "kuechenbon-state-\(UUID().uuidString).json"

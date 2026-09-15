@@ -6,10 +6,13 @@ struct DayReportView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
+    private enum PrintState { case idle, sending, done, failed(String) }
+
     @State private var selectedDate = Date.now
     @State private var report: DayReportDTO?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var printState: PrintState = .idle
 
     private var businessDay: String {
         BusinessDay.day(for: selectedDate, cutoffHour: settings.businessDayCutoffHour)
@@ -40,6 +43,7 @@ struct DayReportView: View {
                     categorySection(report)
                     topArticleSection(report)
                     settlementSection(report)
+                    printSection
                 }
             }
             .navigationTitle("Tagesabschluss")
@@ -140,9 +144,77 @@ struct DayReportView: View {
         }
     }
 
+    private var printSection: some View {
+        Section {
+            Button {
+                printDayReport()
+            } label: {
+                Group {
+                    if isPrinting {
+                        ProgressView()
+                    } else {
+                        Label("Tagesstatistik drucken", systemImage: "printer")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isPrinting)
+            .accessibilityLabel("Tagesstatistik auf dem Küchendrucker ausdrucken")
+
+            printFeedback
+        }
+    }
+
+    @ViewBuilder
+    private var printFeedback: some View {
+        switch printState {
+        case .idle, .sending:
+            EmptyView()
+        case .done:
+            Label("Statistik liegt beim Küchendrucker", systemImage: "checkmark.circle.fill")
+                .font(.headline)
+                .foregroundStyle(.green)
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private var isPrinting: Bool {
+        if case .sending = printState { true } else { false }
+    }
+
+    /// Gedruckt wird `businessDay`, nicht `report.businessDay`: Maßgeblich ist,
+    /// was im DatePicker steht — der Bericht daneben kann noch der alte sein,
+    /// solange `load()` läuft.
+    private func printDayReport() {
+        let day = businessDay
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        printState = .sending
+        Task {
+            let failure = await model.printDayReport(businessDay: day)
+            let feedback = UINotificationFeedbackGenerator()
+            if let failure {
+                feedback.notificationOccurred(.error)
+                printState = .failed(failure)
+            } else {
+                feedback.notificationOccurred(.success)
+                printState = .done
+            }
+        }
+    }
+
     private func load() async {
         isLoading = true
         errorMessage = nil
+        // `load()` läuft bei jedem Wechsel des Betriebstags. Ohne das Zurücksetzen
+        // stünde der grüne Haken vom gedruckten Freitag noch da, während am Schirm
+        // schon der Samstag steht — und der gilt dann als gedruckt, ohne es zu sein.
+        printState = .idle
         defer { isLoading = false }
         do {
             report = try await model.dayReport(for: businessDay)

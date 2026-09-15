@@ -402,4 +402,138 @@ struct BonPlannerTests {
         // Eine Lücke in der Bonfolge bedeutet in der Küche „Bon verloren“.
         #expect(ergebnis.state.nextBonNumber == 47)
     }
+
+    // MARK: - Tagesstatistik
+
+    @Test("Ein frischer Auftrag ist fällig und wird noch nicht vermerkt")
+    func statistikFaellig() {
+        let jetzt = wienerZeit(6, 23, 58)
+        let auftrag = statistikauftrag(requestedAt: jetzt)
+
+        let ergebnis = planenStatistiken([auftrag], now: jetzt)
+
+        #expect(ergebnis.due == [auftrag])
+        #expect(ergebnis.warnings.isEmpty)
+        // Vermerkt wird erst nach dem Druck, im Dienst.
+        #expect(ergebnis.state.dayReports.isEmpty)
+    }
+
+    @Test("Ein bereits gedruckter Auftrag wird nach einem Neustart nicht erneut gedruckt")
+    func statistikNurEinmal() {
+        let jetzt = wienerZeit(6, 23, 58)
+        let auftrag = statistikauftrag(requestedAt: jetzt)
+        let state = PrintState(dayReports: [auftrag.id: jetzt])
+
+        let ergebnis = planenStatistiken([auftrag], state: state, now: jetzt.addingTimeInterval(30))
+
+        #expect(ergebnis.due.isEmpty)
+        #expect(ergebnis.warnings.isEmpty)
+        #expect(ergebnis.state.dayReports[auftrag.id] == jetzt)
+    }
+
+    @Test("Mit printDayReports: false wird nichts gedruckt, der Auftrag gilt trotzdem als erledigt")
+    func statistikAbgeschaltet() {
+        let jetzt = wienerZeit(6, 23, 58)
+        var config = testConfig
+        config.printDayReports = false
+        let auftrag = statistikauftrag(requestedAt: jetzt)
+
+        let ergebnis = planenStatistiken([auftrag], config: config, now: jetzt)
+
+        #expect(ergebnis.due.isEmpty)
+        #expect(ergebnis.warnings.isEmpty)
+        // Ohne Vermerk stünde derselbe Auftrag in jedem weiteren Delta.
+        #expect(ergebnis.state.dayReports[auftrag.id] == jetzt)
+    }
+
+    @Test("Eine Statistik vom Vorabend wird mit einer Warnung verworfen")
+    func statistikZuAlt() {
+        let jetzt = wienerZeit(6, 23, 58)
+        let auftrag = statistikauftrag(requestedAt: jetzt.addingTimeInterval(-61 * 60))
+
+        let ergebnis = planenStatistiken([auftrag], now: jetzt)
+
+        #expect(ergebnis.due.isEmpty)
+        #expect(ergebnis.state.dayReports[auftrag.id] == jetzt)
+        #expect(ergebnis.warnings.count == 1)
+        #expect(ergebnis.warnings[0].contains("2025-09-06"))
+        #expect(ergebnis.warnings[0].contains("60 Minuten"))
+
+        // Eine halbe Stunde alt ist noch in Ordnung — anders als bei der
+        // Aufstellung wartet niemand am Tisch darauf.
+        let knapp = statistikauftrag(requestedAt: jetzt.addingTimeInterval(-30 * 60))
+        #expect(planenStatistiken([knapp], now: jetzt).due == [knapp])
+    }
+
+    @Test("Der Zettel trägt keine Bonnummer und verbraucht keine")
+    func statistikOhneBonnummer() {
+        let jetzt = wienerZeit(6, 23, 58)
+        let state = PrintState(nextBonNumber: 47)
+        let ergebnis = planenStatistiken([statistikauftrag(requestedAt: jetzt)], state: state, now: jetzt)
+
+        let job = BonPlanner.planDayReport(
+            request: ergebnis.due[0],
+            report: bericht(),
+            deviceName: "iPad Bert",
+            config: testConfig
+        )
+
+        #expect(job.bonNumber == nil)
+        // Eine Lücke in der Bonfolge bedeutet in der Küche „Bon verloren“.
+        #expect(ergebnis.state.nextBonNumber == 47)
+    }
+
+    @Test("Der Zettel übernimmt Zahlen, Reihenfolge und Namen unverändert vom Bericht")
+    func statistikAusDemBericht() {
+        let jetzt = wienerZeit(6, 23, 58)
+        let auftrag = statistikauftrag(requestedAt: jetzt)
+
+        let job = BonPlanner.planDayReport(
+            request: auftrag,
+            report: bericht(),
+            deviceName: "iPad Bert",
+            config: testConfig
+        )
+        let statistik = job.statistics
+
+        #expect(job.kind == .dayReport)
+        #expect(job.time == jetzt)
+        #expect(job.deviceName == "iPad Bert")
+        #expect(job.items.isEmpty)
+        #expect(statistik?.businessDay == "2025-09-06")
+        #expect(statistik?.totalCents == 41240)
+        #expect(statistik?.tipCents == 1860)
+        #expect(statistik?.settlementCount == 37)
+        // Die Reihenfolge des Servers bleibt, und „Getraenke" bleibt ohne Umlaut:
+        // die Übersetzungstabelle der Apps bekommt hier keine dritte Kopie.
+        #expect(statistik?.byCategory == [
+            BonJob.Statistics.Entry(label: "Getraenke", cents: 14440),
+            BonJob.Statistics.Entry(label: "Speisen", cents: 26800)
+        ])
+        #expect(statistik?.topArticles == [
+            BonJob.Statistics.Entry(label: "Käsekrainer mit Gebäck", qty: 12, cents: 7440),
+            BonJob.Statistics.Entry(label: "Bier 0,5", qty: 9, cents: 4320)
+        ])
+    }
+
+    @Test("Die Liste der meistverkauften Artikel wird auf dayReportTopArticles gekürzt")
+    func statistikKuerztDieArtikelliste() {
+        var config = testConfig
+        config.dayReportTopArticles = 3
+        let viele = (1...12).map {
+            DayReportDTO.ArticleTotal(articleId: "a-\($0)", name: "Artikel \($0)", qty: 13 - $0, totalCents: 100 * $0)
+        }
+
+        let job = BonPlanner.planDayReport(
+            request: statistikauftrag(requestedAt: wienerZeit(6, 23, 58)),
+            report: bericht(topArticles: viele),
+            deviceName: nil,
+            config: config
+        )
+
+        #expect(job.statistics?.topArticles.count == 3)
+        #expect(job.statistics?.topArticles.first?.label == "Artikel 1")
+        // Die Kategorien werden nie gekürzt — es gibt nur eine Handvoll.
+        #expect(job.statistics?.byCategory.count == 2)
+    }
 }

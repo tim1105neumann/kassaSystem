@@ -2,16 +2,22 @@ package at.heuriger.kassa.net.contract
 
 import at.heuriger.kassa.net.ApiException
 import at.heuriger.kassa.net.KtorKassaApi
+import at.heuriger.kassa.wire.ApiRoute
 import at.heuriger.kassa.wire.ArticleDto
 import at.heuriger.kassa.wire.BusinessDay
+import at.heuriger.kassa.wire.CreateDayReportPrintRequestRequest
 import at.heuriger.kassa.wire.CreateOrderLinesRequest
 import at.heuriger.kassa.wire.CreatePrintRequestRequest
 import at.heuriger.kassa.wire.CreateSettlementRequest
+import at.heuriger.kassa.wire.DayReportPrintRequestDto
 import at.heuriger.kassa.wire.KassaClock
+import at.heuriger.kassa.wire.KassaJson
 import at.heuriger.kassa.wire.NewOrderLine
 import at.heuriger.kassa.wire.SettlementConflictDto
 import at.heuriger.kassa.wire.SettlementLineSelection
 import at.heuriger.kassa.wire.SyncPing
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -19,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.builtins.ListSerializer
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,6 +53,12 @@ class KassaApiContractTest {
 
         private lateinit var api: KtorKassaApi
         private lateinit var articles: List<ArticleDto>
+
+        /**
+         * Nur fuer den rohen GET auf die Statistik-Auftraege noetig — [api] haelt
+         * den Token sonst fuer sich.
+         */
+        private lateinit var token: String
         private var cutoffHour: Int = 6
 
         /** Eigener Tischbereich, damit die Faelle sich nicht gegenseitig sehen. */
@@ -61,6 +74,7 @@ class KassaApiContractTest {
             runBlocking {
                 // Genau eine Anmeldung pro Lauf — jede erzeugt am Server ein Geraet.
                 val login = api.login(ContractEnv.password, DEVICE_NAME)
+                token = login.token
                 api.configure(baseUrl, login.token)
                 articles = api.articles()
                 cutoffHour = api.config().businessDayCutoffHour
@@ -440,6 +454,94 @@ class KassaApiContractTest {
         assertEquals(2, item.qty)
         assertEquals(article.priceCents, item.unitPriceCents)
         assertEquals(article.priceCents * 2, printRequest.totalCents)
+    }
+
+    /**
+     * Die Gegenrichtung pollt nur der Druckdienst, nie die App — deshalb gibt es
+     * dafuer keine [at.heuriger.kassa.net.KassaApi]-Methode, und der
+     * Vertragstest greift hier ausnahmsweise roh zu. Eine Methode nur fuer den
+     * Test waere toter Code in der App.
+     */
+    private fun fetchDayReportPrintRequests(since: Int): List<DayReportPrintRequestDto> {
+        val url = URL(
+            "${ContractEnv.requireBaseUrl()}/${ApiRoute.DAY_REPORT_PRINT_REQUESTS}?since=$since",
+        )
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", "application/json")
+        }
+        try {
+            assertEquals(200, connection.responseCode)
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            return KassaJson.instance.decodeFromString(
+                ListSerializer(DayReportPrintRequestDto.serializer()),
+                body,
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    @Test
+    fun `Statistik-Druckauftrag kommt mit Betriebstag und Geraet zurueck`(): Unit = runBlocking {
+        val businessDay = BusinessDay.day(KassaClock.now(), cutoffHour)
+
+        val created = api.createDayReportPrintRequest(
+            CreateDayReportPrintRequestRequest(
+                id = UUID.randomUUID(),
+                businessDay = businessDay,
+                requestedAt = KassaClock.now(),
+            ),
+        )
+
+        assertEquals(businessDay, created.businessDay)
+        // Die Geraete-ID setzt der Server aus dem Token, der Client schickt keine.
+        assertTrue("Geraete-ID darf nicht leer sein", created.deviceId.isNotBlank())
+        assertTrue(created.updatedSeq > 0)
+    }
+
+    /** Ein zweimal gedrueckter Knopf darf keinen zweiten Zettel erzeugen. */
+    @Test
+    fun `derselbe Statistik-Druckauftrag zweimal geschickt aendert nichts`(): Unit = runBlocking {
+        val id = UUID.randomUUID()
+        val request = CreateDayReportPrintRequestRequest(
+            id = id,
+            businessDay = BusinessDay.day(KassaClock.now(), cutoffHour),
+            requestedAt = KassaClock.now(),
+        )
+
+        val first = api.createDayReportPrintRequest(request)
+        // Anderer Zeitstempel, dieselbe ID: der Server muss den alten Stand halten.
+        val second = api.createDayReportPrintRequest(request.copy(requestedAt = KassaClock.now()))
+
+        assertEquals(first, second)
+        assertEquals(1, fetchDayReportPrintRequests(first.updatedSeq - 1).count { it.id == id })
+    }
+
+    @Test
+    fun `Statistik-Druckauftrag erscheint im since-Delta`(): Unit = runBlocking {
+        val businessDay = BusinessDay.day(KassaClock.now(), cutoffHour)
+        val requestedAt = KassaClock.now()
+
+        val created = api.createDayReportPrintRequest(
+            CreateDayReportPrintRequestRequest(
+                id = UUID.randomUUID(),
+                businessDay = businessDay,
+                requestedAt = requestedAt,
+            ),
+        )
+
+        val found = fetchDayReportPrintRequests(created.updatedSeq - 1)
+            .singleOrNull { it.id == created.id }
+
+        assertNotNull("Der Auftrag fehlt im Delta ab seq=${created.updatedSeq - 1}", found)
+        assertEquals(created, found)
+        assertEquals(requestedAt, found!!.requestedAt)
+        assertTrue(
+            "since muss echt groesser filtern",
+            fetchDayReportPrintRequests(created.updatedSeq).none { it.id == created.id },
+        )
     }
 
     // MARK: - Tagesabschluss

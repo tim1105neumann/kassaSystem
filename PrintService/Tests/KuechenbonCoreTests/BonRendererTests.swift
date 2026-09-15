@@ -1,4 +1,5 @@
 import Foundation
+import KassaShared
 import Testing
 @testable import KuechenbonCore
 
@@ -314,6 +315,147 @@ struct BonRendererTests {
         #expect(text.contains("Kaesekrainer mit Gebaeck"))
         #expect(text.contains("Reinerloes"))
         #expect(text.contains("€") == false)
+    }
+
+    // MARK: - Tagesstatistik
+
+    private func statistikzettel(
+        _ report: DayReportDTO = bericht(),
+        deviceName: String? = "iPad Wirt",
+        config: BonConfig = testConfig
+    ) -> BonJob {
+        BonPlanner.planDayReport(
+            request: statistikauftrag(requestedAt: wienerZeit(6, 23, 58)),
+            report: report,
+            deviceName: deviceName,
+            config: config
+        )
+    }
+
+    @Test("Der Zettel zeigt Kopf, Betriebstag, Gerät, die drei Kennzahlen und beide Aufschlüsselungen")
+    func statistikLayout() {
+        let text = BonRenderer.plainText(statistikzettel(), config: testConfig)
+        let zeilen = text.components(separatedBy: "\n")
+
+        #expect(zeilen[1].contains("TAGESSTATISTIK"))
+        // Gesperrt wären das 27 Zeichen — doppelt groß stehen nur 24 zur Verfügung.
+        #expect(text.contains("T A G E S") == false)
+        #expect(zeilen[2].contains("Sa 06.09.2025"))
+        #expect(zeilen[4].hasPrefix("Sa 06.09.  23:58"))
+        // Der Zettel gehört dem Wirt, einen Kellner gibt es hier nicht.
+        #expect(zeilen[4].hasSuffix("Gerät: iPad Wirt"))
+        #expect(text.contains("Kellner") == false)
+        #expect(zeilen.contains { $0.hasPrefix("Umsatz") && $0.hasSuffix("412,40 EUR") })
+        #expect(zeilen.contains { $0.hasPrefix("Trinkgeld") && $0.hasSuffix("18,60 EUR") })
+        #expect(zeilen.contains { $0.hasPrefix("Kassiervorgänge") && $0.hasSuffix("37") })
+        #expect(zeilen.contains("NACH KATEGORIE"))
+        #expect(zeilen.contains { $0.hasPrefix("  Getraenke") && $0.hasSuffix("144,40 EUR") })
+        #expect(zeilen.contains("MEISTVERKAUFT"))
+        #expect(zeilen.contains { $0.hasPrefix("  12x Käsekrainer mit Gebäck") && $0.hasSuffix("74,40 EUR") })
+        #expect(zeilen.contains { $0.hasPrefix("   9x Bier 0,5") && $0.hasSuffix("43,20 EUR") })
+        // Der Hinweis steht fest im Programm — er ist der Grund, warum der
+        // Zettel nicht „Tagesabschluss" heißen darf.
+        #expect(text.contains("interne Rechenhilfe"))
+        #expect(text.contains("Registrierkassenpflicht"))
+        #expect(text.contains("revisionssicher"))
+    }
+
+    /// Das Wort „Tisch" steht nirgends auf dem Zettel, und ohne Bonnummer kann
+    /// ihn der Koch auch nicht für eine Bestellung halten.
+    @Test("Die Statistik trägt weder Tisch noch Bonnummer noch ein Eurozeichen")
+    func statistikOhneTischUndBon() {
+        let text = BonRenderer.plainText(statistikzettel(), config: testConfig)
+
+        #expect(text.contains("TISCH") == false)
+        #expect(text.lowercased().contains("tisch") == false)
+        #expect(text.contains("Bon ") == false)
+        #expect(text.contains("€") == false)
+        #expect(text.contains("EUR"))
+    }
+
+    @Test("KASSA ist Umsatz plus Trinkgeld und bleibt auch fünfstellig in der halben Spaltenzahl")
+    func statistikKassaZeile() throws {
+        let zeilen = BonRenderer.plainText(statistikzettel(), config: testConfig).components(separatedBy: "\n")
+        let kassa = try #require(zeilen.first { $0.hasPrefix("KASSA") })
+
+        #expect(kassa.hasSuffix("431,00 EUR"))
+        #expect(kassa.count <= testConfig.lineWidth / 2)
+
+        // Ein sehr guter Abend: die doppelt große Zeile darf auch dann nicht
+        // über die halbe Spaltenzahl laufen, sonst bricht der Drucker sie um.
+        let gross = statistikzettel(bericht(totalCents: 1_234_567, tipCents: 98_765))
+        let grosseZeilen = BonRenderer.plainText(gross, config: testConfig).components(separatedBy: "\n")
+        let summe = try #require(grosseZeilen.first { $0.hasPrefix("KASSA") })
+        #expect(summe.hasSuffix("13333,32 EUR"))
+        #expect(summe.count <= testConfig.lineWidth / 2)
+        for zeile in grosseZeilen { #expect(zeile.count <= testConfig.lineWidth, "Zu lang: \(zeile)") }
+    }
+
+    @Test("Die doppelt großen Kopfzeilen bleiben in der halben Spaltenzahl")
+    func statistikKopfAufHalberBreite() {
+        let zeilen = BonRenderer.plainText(statistikzettel(), config: testConfig).components(separatedBy: "\n")
+
+        #expect(zeilen[1].count <= testConfig.lineWidth / 2)
+        #expect(zeilen[2].count <= testConfig.lineWidth / 2)
+        for zeile in zeilen { #expect(zeile.count <= testConfig.lineWidth, "Zu lang: \(zeile)") }
+    }
+
+    @Test("Ein Tag ohne Umsatz ergibt keine leeren Abschnitte")
+    func statistikLeererTag() {
+        let leer = bericht(totalCents: 0, tipCents: 0, settlementCount: 0, byCategory: [], topArticles: [])
+        let text = BonRenderer.plainText(statistikzettel(leer, deviceName: nil), config: testConfig)
+
+        #expect(text.contains("NACH KATEGORIE") == false)
+        #expect(text.contains("MEISTVERKAUFT") == false)
+        #expect(text.contains("Kassiervorgänge"))
+        #expect(text.contains("KASSA"))
+        #expect(text.contains("0,00 EUR"))
+        #expect(text.contains("revisionssicher"))
+    }
+
+    @Test("Ein unlesbarer Betriebstag wird roh gedruckt statt verschluckt")
+    func statistikMitUnlesbaremTag() {
+        var job = statistikzettel()
+        job.statistics?.businessDay = "morgen"
+        #expect(BonRenderer.plainText(job, config: testConfig).contains("morgen"))
+    }
+
+    @Test("Ein langer Artikelname wird umgebrochen, der Betrag steht auf der letzten Zeile")
+    func statistikLangerArtikelname() {
+        let lang = DayReportDTO.ArticleTotal(
+            articleId: "a-lang",
+            name: "Große Käsekrainer mit Gebäck und Senf und Kren extra scharf",
+            qty: 7,
+            totalCents: 9030
+        )
+        let zeilen = BonRenderer.plainText(statistikzettel(bericht(topArticles: [lang])), config: testConfig)
+            .components(separatedBy: "\n")
+
+        let positionen = zeilen.filter { $0.contains("Käsekrainer") || $0.contains("scharf") }
+        #expect(positionen.count == 2)
+        #expect(positionen[0].hasPrefix("   7x "))
+        #expect(positionen[0].contains("90,30") == false)
+        #expect(positionen[1].hasSuffix("90,30 EUR"))
+        for zeile in zeilen { #expect(zeile.count <= testConfig.lineWidth, "Zu lang: \(zeile)") }
+    }
+
+    @Test("Die Statistik enthält weder in CP437 noch im ASCII-Fallback ein Fragezeichen")
+    func statistikOhneUndruckbareZeichen() {
+        let job = statistikzettel()
+
+        // '?' ist das Ersatzzeichen für alles, was die Codepage nicht kennt.
+        #expect([UInt8](BonRenderer.escPos(job, config: testConfig)).contains(0x3F) == false)
+
+        var fallback = testConfig
+        fallback.asciiFallback = true
+        let bytes = [UInt8](BonRenderer.escPos(job, config: fallback))
+        #expect(bytes.contains(0x3F) == false)
+        #expect(bytes.allSatisfy { $0 < 0x80 })
+
+        let text = String(decoding: bytes, as: UTF8.self)
+        #expect(text.contains("Kassiervorgaenge"))
+        #expect(text.contains("Uebersicht"))
+        #expect(text.contains("Geraet: iPad Wirt"))
     }
 
     /// Was der Drucker als Zeichen ausgibt, ohne die ESC/POS-Sequenzen: die

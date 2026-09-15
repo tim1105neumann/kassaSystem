@@ -20,11 +20,18 @@ final class TestServer: KassaServerAccess {
     var druckauftraege: [PrintRequestDTO] = []
     /// Steht für einen Server, der die Druckaufträge gerade nicht herausrückt.
     var druckauftraegeFehler: Error?
+    var tagesstatistikAuftraege: [DayReportPrintRequestDTO] = []
+    /// Je Betriebstag ein Bericht — der Dienst fragt mit dem Tag aus dem Auftrag.
+    var berichte: [String: DayReportDTO] = [:]
+    /// Steht für einen Server, der die Aufträge kennt, den Bericht aber nicht liefert.
+    var berichtFehler: Error?
 
     private(set) var artikelAufrufe = 0
     private(set) var geraeteAufrufe = 0
     private(set) var syncAufrufe = 0
     private(set) var druckauftragSeit: [Int] = []
+    private(set) var statistikSeit: [Int] = []
+    private(set) var berichtAufrufe: [String] = []
 
     init(
         antwort: SyncResponse,
@@ -55,6 +62,17 @@ final class TestServer: KassaServerAccess {
         druckauftragSeit.append(since)
         if let druckauftraegeFehler { throw druckauftraegeFehler }
         return druckauftraege
+    }
+
+    func dayReportRequests(since: Int) throws -> [DayReportPrintRequestDTO] {
+        statistikSeit.append(since)
+        return tagesstatistikAuftraege
+    }
+
+    func dayReport(businessDay: String) throws -> DayReportDTO {
+        berichtAufrufe.append(businessDay)
+        if let berichtFehler { throw berichtFehler }
+        return berichte[businessDay] ?? bericht(businessDay: businessDay)
     }
 }
 
@@ -328,6 +346,98 @@ struct ServiceTests {
         )
         #expect(zweiter.runOnce(now: jetzt.addingTimeInterval(30)) == true)
         #expect(drucker.gedruckt.count == 2)
+    }
+
+    @Test("Die Tagesstatistik kommt zuletzt, nach Küchenbon und Aufstellung")
+    func statistikZuletzt() throws {
+        let jetzt = wienerZeit(6, 23, 58)
+        let server = TestServer(antwort: syncAntwort([zeile(Katalog.krainer, tisch: 7, createdAt: jetzt)]))
+        server.druckauftraege = [druckauftrag(tisch: 7, requestedAt: jetzt)]
+        let auftrag = statistikauftrag(requestedAt: jetzt)
+        server.tagesstatistikAuftraege = [auftrag]
+        let drucker = TestDrucker()
+        let zustandsPfad = testPfad("state.json")
+
+        let dienst = Service(
+            config: testConfig,
+            state: PrintState(lastSeq: 10, nextBonNumber: 1),
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+        #expect(dienst.runOnce(now: jetzt) == true)
+
+        #expect(drucker.gedruckt.map(\.kind) == [.order, .overview, .dayReport])
+        #expect(drucker.gedruckt[2].deviceName == "iPad Bert")
+        #expect(drucker.gedruckt[2].statistics?.businessDay == "2025-09-06")
+        #expect(server.berichtAufrufe == ["2025-09-06"])
+        // Gefragt wird mit dem Stand von vor dem Durchlauf, wie bei den Aufstellungen.
+        #expect(server.statistikSeit == [10])
+
+        let gesichert = try PrintState.load(from: zustandsPfad)
+        #expect(gesichert.dayReports[auftrag.id] == jetzt)
+        // Die Statistik zählt in der Bonfolge nicht mit.
+        #expect(gesichert.nextBonNumber == 2)
+
+        // Derselbe Auftrag kommt im nächsten Delta erneut — und bleibt liegen.
+        server.antwort = syncAntwort([], maxSeq: 120)
+        server.druckauftraege = []
+        let zweiter = Service(
+            config: testConfig,
+            state: gesichert,
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+        #expect(zweiter.runOnce(now: jetzt.addingTimeInterval(30)) == true)
+        #expect(drucker.gedruckt.count == 3)
+        // Für einen Auftrag, der nicht mehr fällig ist, wird auch kein Bericht geholt.
+        #expect(server.berichtAufrufe == ["2025-09-06"])
+    }
+
+    @Test("Scheitert der Bericht, wird nichts vermerkt und der Durchlauf gilt trotzdem als erfolgreich")
+    func statistikOhneBericht() throws {
+        let jetzt = wienerZeit(6, 23, 58)
+        let bestellung = zeile(Katalog.krainer, tisch: 7, createdAt: jetzt)
+        let server = TestServer(antwort: syncAntwort([bestellung]))
+        let auftrag = statistikauftrag(requestedAt: jetzt)
+        server.tagesstatistikAuftraege = [auftrag]
+        server.berichtFehler = HTTPError.timedOut
+        let drucker = TestDrucker()
+        let zustandsPfad = testPfad("state.json")
+
+        let dienst = Service(
+            config: testConfig,
+            state: PrintState(lastSeq: 10, nextBonNumber: 1),
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+
+        // Das Essen wird trotzdem gekocht.
+        #expect(dienst.runOnce(now: jetzt) == true)
+        #expect(drucker.gedruckt.map(\.kind) == [.order])
+
+        let gesichert = try PrintState.load(from: zustandsPfad)
+        #expect(gesichert.lines[bestellung.id]?.status == .printed)
+        #expect(gesichert.lastSeq == 99)
+        // Ohne Vermerk kommt der Auftrag im nächsten Delta wieder.
+        #expect(gesichert.dayReports.isEmpty)
+
+        server.berichtFehler = nil
+        let zweiter = Service(
+            config: testConfig,
+            state: gesichert,
+            statePath: zustandsPfad,
+            server: server,
+            printer: drucker,
+            log: stillesLog()
+        )
+        #expect(zweiter.runOnce(now: jetzt.addingTimeInterval(30)) == true)
+        #expect(drucker.gedruckt.map(\.kind) == [.order, .dayReport])
     }
 
     @Test("Ein Fehler beim Holen der Druckaufträge bricht den Durchlauf nicht ab")

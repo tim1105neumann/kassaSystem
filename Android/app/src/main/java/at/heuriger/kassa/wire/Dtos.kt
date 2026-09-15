@@ -198,6 +198,38 @@ data class PrintRequestDto(
     val total: Money get() = Money(totalCents)
 }
 
+// MARK: - Druckauftrag Tagesstatistik
+
+@Serializable
+data class CreateDayReportPrintRequestRequest(
+    /**
+     * Vom Client vergeben, idempotent wie ueberall — ein zweimal gedrueckter
+     * Knopf darf keinen zweiten Zettel erzeugen.
+     */
+    val id: UUID,
+    /**
+     * "yyyy-MM-dd", der im DatePicker gewaehlte Betriebstag. Gedruckt wird, was
+     * am Bildschirm steht, nicht zwingend der heutige Tag.
+     */
+    val businessDay: String,
+    val requestedAt: Instant,
+)
+
+/**
+ * Traegt bewusst keine Zahlen. Der Bericht wird nicht eingefroren, sondern vom
+ * Druckdienst ueber `GET /reports/day` frisch geholt — ein gespeicherter
+ * Umsatz-Schnappschuss waere eine zweite Wahrheit neben der berechneten und
+ * kaeme einem Journal naeher, als dieses System je sein will.
+ */
+@Serializable
+data class DayReportPrintRequestDto(
+    val id: UUID,
+    val businessDay: String,
+    val requestedAt: Instant,
+    val deviceId: String,
+    val updatedSeq: Int,
+)
+
 // MARK: - Sync
 
 @Serializable

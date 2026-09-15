@@ -29,6 +29,11 @@ public struct PrintState: Codable, Sendable, Equatable {
     /// Druckauftrag kommt im nächsten Delta erneut (siehe Service.swift), und
     /// nur dieser Eintrag verhindert, dass der Gast einen zweiten Zettel bekommt.
     public var printRequests: [UUID: Date]
+    /// Dieselbe Dublettensperre für die Tagesstatistik. Bewusst ein eigenes
+    /// Verzeichnis und nicht `printRequests` mitbenutzt: die beiden Aufträge
+    /// kommen aus getrennten Tabellen und über getrennte Routen, und nur
+    /// getrennt bleibt ablesbar, welcher der beiden Zettel schon gedruckt ist.
+    public var dayReports: [UUID: Date]
 
     public init(
         lastSeq: Int = 0,
@@ -36,7 +41,8 @@ public struct PrintState: Codable, Sendable, Equatable {
         token: String? = nil,
         deviceId: String? = nil,
         lines: [UUID: LineRecord] = [:],
-        printRequests: [UUID: Date] = [:]
+        printRequests: [UUID: Date] = [:],
+        dayReports: [UUID: Date] = [:]
     ) {
         self.lastSeq = lastSeq
         self.nextBonNumber = nextBonNumber
@@ -44,6 +50,7 @@ public struct PrintState: Codable, Sendable, Equatable {
         self.deviceId = deviceId
         self.lines = lines
         self.printRequests = printRequests
+        self.dayReports = dayReports
     }
 
     /// Von Hand statt synthetisiert: die Zustandsdatei am Küchen-Mac gibt es
@@ -60,6 +67,9 @@ public struct PrintState: Codable, Sendable, Equatable {
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         lines = try container.decode([UUID: LineRecord].self, forKey: .lines)
         printRequests = try container.decodeIfPresent([UUID: Date].self, forKey: .printRequests) ?? [:]
+        // Aus demselben Grund optional wie `printRequests`: die Zustandsdatei am
+        // Küchen-Mac wurde geschrieben, als es diesen Schlüssel noch nicht gab.
+        dayReports = try container.decodeIfPresent([UUID: Date].self, forKey: .dayReports) ?? [:]
     }
 
     /// Der Server liefert beim Vollabgleich nur die letzten drei Betriebstage
@@ -70,6 +80,7 @@ public struct PrintState: Codable, Sendable, Equatable {
         var copy = self
         copy.lines = lines.filter { now.timeIntervalSince($0.value.at) <= maxAge }
         copy.printRequests = printRequests.filter { now.timeIntervalSince($0.value) <= maxAge }
+        copy.dayReports = dayReports.filter { now.timeIntervalSince($0.value) <= maxAge }
         return copy
     }
 

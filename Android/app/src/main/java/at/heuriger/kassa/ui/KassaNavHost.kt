@@ -415,6 +415,7 @@ private fun DayReportSheet(container: AppContainer, onDone: () -> Unit) {
             cutoffHour = cutoffHour,
             state = state,
             onSelectDate = { pickedMillis = it },
+            onPrintDayReport = { container.session.printDayReport(businessDay) },
             onDone = onDone,
             modifier = Modifier.fillMaxHeight(),
         )

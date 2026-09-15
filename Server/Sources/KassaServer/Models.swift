@@ -213,6 +213,39 @@ final class PrintRequest: Model, @unchecked Sendable {
     }
 }
 
+/// Kein `items_json` wie bei `PrintRequest`: dort ist der Schnappschuss der Sinn
+/// der Sache, hier wäre er eine zweite Wahrheit neben `dayReport`. Der Auftrag
+/// ist ein reiner Auslöser — die Zahlen holt sich der Druckdienst selbst.
+final class DayReportPrintRequest: Model, @unchecked Sendable {
+    static let schema = "day_report_print_requests"
+
+    @ID(custom: .id, generatedBy: .user) var id: UUID?
+    @Field(key: "business_day") var businessDay: String
+    @Field(key: "requested_at") var requestedAt: Date
+    @Field(key: "device_id") var deviceId: String
+    @Field(key: "updated_seq") var updatedSeq: Int
+
+    init() {}
+
+    init(id: UUID, businessDay: String, requestedAt: Date, deviceId: String, updatedSeq: Int) {
+        self.id = id
+        self.businessDay = businessDay
+        self.requestedAt = requestedAt
+        self.deviceId = deviceId
+        self.updatedSeq = updatedSeq
+    }
+
+    func dto() throws -> DayReportPrintRequestDTO {
+        DayReportPrintRequestDTO(
+            id: try requireID(),
+            businessDay: businessDay,
+            requestedAt: requestedAt,
+            deviceId: deviceId,
+            updatedSeq: updatedSeq
+        )
+    }
+}
+
 final class Device: Model, @unchecked Sendable {
     static let schema = "devices"
 
