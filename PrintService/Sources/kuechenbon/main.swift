@@ -170,7 +170,8 @@ func probebon(config: BonConfig, trockenlauf: Bool, log: Logger) -> Int32 {
         time: Date(),
         deviceName: "Probedruck",
         items: [
-            BonJob.Item(qty: 2, name: "Käsekrainer mit Gebäck"),
+            // Mit Notiz, damit der Probebon auch den Marker und die Einrückung zeigt.
+            BonJob.Item(qty: 2, name: "Käsekrainer mit Gebäck", note: "ohne Senf, extra Zwiebel"),
             BonJob.Item(qty: 1, name: "Weißwurst süß"),
             BonJob.Item(qty: 3, name: "Gebäck")
         ]

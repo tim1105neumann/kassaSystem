@@ -59,7 +59,7 @@ struct MergeTests {
 
         // Offline gebucht, noch nicht bestätigt.
         let bier = try env.article("b1")
-        env.store.addLines(tableNumber: 9, items: [(bier, 1)])
+        env.store.addLines(tableNumber: 9, items: [BookingItem(article: bier, qty: 1)])
         #expect(env.store.openPendingCount == 1)
 
         let neu = UUID()
@@ -91,5 +91,24 @@ struct MergeTests {
 
         #expect(env.store.lines(forTable: 8).count == 3)
         #expect(env.openTotal(table: 8) == Money(cents: 1_320))
+    }
+
+    @Test("Ein Serverstand ohne Notiz löscht die lokal gesetzte — apply überschreibt vollständig")
+    func serverStateWithoutNoteClearsLocalNote() throws {
+        let env = try TestEnvironment()
+        env.seedCatalog()
+        let bier = try env.article("b1")
+
+        env.store.addLines(tableNumber: 11, items: [BookingItem(article: bier, qty: 1, note: "ohne Eis")])
+        let local = try #require(env.store.lines(forTable: 11).first)
+        #expect(local.note == "ohne Eis")
+
+        env.store.merge(SyncResponse(
+            lines: [line(id: local.id, qty: 1, seq: 7, table: 11)],
+            settlements: [],
+            maxSeq: 7
+        ))
+
+        #expect(local.note == nil, "gewollt: der Server ist die Wahrheit, auch wenn er nichts weiß")
     }
 }

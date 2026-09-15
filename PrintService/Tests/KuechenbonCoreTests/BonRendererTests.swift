@@ -130,6 +130,75 @@ struct BonRendererTests {
         #expect(tisch.count - text.count == (24 - text.count) / 2)
     }
 
+    // MARK: - Notiz
+
+    @Test("Die Notiz steht eingerückt unter ihrer Position")
+    func notizUnterDerPosition() throws {
+        var job = bestellung
+        job.items[0].note = "ohne Senf"
+        let zeilen = BonRenderer.plainText(job, config: testConfig).components(separatedBy: "\n")
+
+        let position = try #require(zeilen.firstIndex(of: " 2x  Käsekrainer mit Gebäck"))
+        #expect(zeilen[position + 1] == "     >> ohne Senf")
+        // Die Position ohne Notiz folgt unmittelbar danach.
+        #expect(zeilen[position + 2] == " 1x  Bratwurst mit Pommes")
+    }
+
+    @Test("Eine Position ohne Notiz bleibt unverändert")
+    func ohneNotizKeinMarker() {
+        #expect(BonRenderer.plainText(bestellung, config: testConfig).contains(">>") == false)
+    }
+
+    @Test("Eine lange Notiz wird umgebrochen statt abgeschnitten")
+    func langeNotizWirdUmgebrochen() {
+        var job = bestellung
+        let notiz = "ohne Zwiebel und ohne Gurken, dafür bitte extra viel Senf und Ketchup"
+        job.items[0].note = notiz
+        let zeilen = BonRenderer.plainText(job, config: testConfig).components(separatedBy: "\n")
+
+        let notizzeilen = zeilen.filter { $0.contains(">>") || $0.contains("Ketchup") }
+        #expect(notizzeilen.count == 2)
+        #expect(notizzeilen[0].hasPrefix("     >> "))
+        // Fortsetzungszeilen rücken um die Markerbreite weiter ein.
+        #expect(notizzeilen[1].hasPrefix("        "))
+        #expect(notizzeilen[1].hasPrefix("        >") == false)
+
+        let zusammen = notizzeilen
+            .map { $0.replacingOccurrences(of: ">>", with: "").trimmingCharacters(in: .whitespaces) }
+            .joined(separator: " ")
+        #expect(zusammen == notiz)
+        for zeile in zeilen { #expect(zeile.count <= testConfig.lineWidth, "Zu lang: \(zeile)") }
+    }
+
+    /// Die Sperre gehört in den Renderer und nicht nur in `planOverviews`: die
+    /// Aufstellung ist ein Preiszettel für den Gast.
+    @Test("Auf der Aufstellung erscheint keine Notiz, auch wenn eine gesetzt ist")
+    func aufstellungOhneNotiz() {
+        var job = aufstellung
+        job.items[0].note = "ohne Senf"
+        let text = BonRenderer.plainText(job, config: testConfig)
+
+        #expect(text.contains(">>") == false)
+        #expect(text.contains("ohne Senf") == false)
+    }
+
+    /// Die Layoutfunktionen rechnen in Zeichen, der Drucker zählt Bytes: mit
+    /// `asciiFallback` wird aus „ü" ein „ue". Bricht die Zeile über `lineWidth`,
+    /// umbricht der Drucker selbst und die Einrückung ist hin.
+    @Test("Auch in Bytes bleibt keine Notizzeile länger als lineWidth")
+    func notizSprengtDieZeileNichtInBytes() {
+        var job = bestellung
+        job.items[0].note = "für Omas Würstel bitte süß und ohne Zwiebel"
+
+        for fallback in [false, true] {
+            let config = BonConfig(serverURL: "https://kassa.viennax.at", password: "geheim", asciiFallback: fallback)
+            for zeile in gedruckteZeilen(BonRenderer.escPos(job, config: config)) {
+                #expect(zeile.count <= config.lineWidth,
+                        "Zu lang (\(zeile.count) Bytes, Fallback \(fallback)): \(String(decoding: zeile, as: UTF8.self))")
+            }
+        }
+    }
+
     // MARK: - Aufstellung
 
     private let aufstellung = BonJob(
@@ -245,6 +314,29 @@ struct BonRendererTests {
         #expect(text.contains("Kaesekrainer mit Gebaeck"))
         #expect(text.contains("Reinerloes"))
         #expect(text.contains("€") == false)
+    }
+
+    /// Was der Drucker als Zeichen ausgibt, ohne die ESC/POS-Sequenzen: die
+    /// tragen mit `@`, `t`, `a` und `!` selbst druckbare Bytes und würden die
+    /// Byte-Zählung verfälschen.
+    private func gedruckteZeilen(_ data: Data) -> [[UInt8]] {
+        let bytes = [UInt8](data)
+        var text: [UInt8] = []
+        var index = 0
+        while index < bytes.count {
+            let laenge: Int
+            switch (bytes[index], index + 1 < bytes.count ? bytes[index + 1] : 0) {
+            case (0x1B, 0x40): laenge = 2            // ESC @
+            case (0x1B, _): laenge = 3               // ESC t n, ESC a n
+            case (0x1D, 0x21): laenge = 3            // GS ! n
+            case (0x1D, 0x56): laenge = 4            // GS V m n
+            default:
+                text.append(bytes[index])
+                laenge = 1
+            }
+            index += laenge
+        }
+        return text.split(separator: 0x0A, omittingEmptySubsequences: false).map(Array.init)
     }
 
     private func enthaelt(_ heuhaufen: [UInt8], _ nadel: [UInt8]) -> Bool {

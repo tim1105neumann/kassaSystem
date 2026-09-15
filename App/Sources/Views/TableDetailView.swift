@@ -103,6 +103,14 @@ private struct OrderLineRow: View {
                     .font(.headline.monospacedDigit())
             }
 
+            // Nur zum Nachlesen: Ändern würde einen Update-Command brauchen,
+            // den das Protokoll nicht kennt.
+            if let note = line.note, !note.isEmpty {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 16) {
                 Text("\(line.unitPrice.formatted) / Stück")
                     .font(.subheadline)

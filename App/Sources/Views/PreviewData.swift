@@ -32,7 +32,8 @@ enum PreviewData {
         let start = Date.now.addingTimeInterval(-1_800)
         context.insert(LocalOrderLine(
             id: UUID(), tableNumber: 3, articleId: "a1", nameSnapshot: "Käsekrainer mit Gebäck",
-            unitPriceCents: 620, qty: 2, createdAt: start, deviceId: "preview", updatedSeq: 1, pendingLocal: false
+            unitPriceCents: 620, qty: 2, createdAt: start, deviceId: "preview", updatedSeq: 1, pendingLocal: false,
+            note: "ohne Senf, extra Zwiebel"
         ))
         context.insert(LocalOrderLine(
             id: UUID(), tableNumber: 3, articleId: "b1", nameSnapshot: "Bier, Radler 0,5 l",

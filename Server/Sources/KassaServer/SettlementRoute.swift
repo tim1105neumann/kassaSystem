@@ -132,7 +132,8 @@ func createSettlement(request: Request) async throws -> Response {
                         createdAt: line.createdAt,
                         deviceId: line.deviceId,
                         settlementId: settlementID,
-                        updatedSeq: seq
+                        updatedSeq: seq,
+                        note: line.note
                     )
                     try await settledPart.create(on: db)
                 }

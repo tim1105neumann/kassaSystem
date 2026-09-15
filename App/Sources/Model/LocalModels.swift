@@ -63,6 +63,9 @@ final class LocalOrderLine {
     /// Zeilen überlebt ein Full Reload, sonst würde die Buchung verschwinden,
     /// bevor die Queue sie überhaupt abgesetzt hat.
     var pendingLocal: Bool
+    /// Sonderwunsch zur Position. Default nötig wie bei `tipCents`, sonst
+    /// migriert SwiftData eine bestehende Datei nicht leichtgewichtig.
+    var note: String? = nil
 
     init(
         id: UUID,
@@ -76,7 +79,8 @@ final class LocalOrderLine {
         voidedAt: Date? = nil,
         settlementId: UUID? = nil,
         updatedSeq: Int = 0,
-        pendingLocal: Bool = true
+        pendingLocal: Bool = true,
+        note: String? = nil
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -90,6 +94,7 @@ final class LocalOrderLine {
         self.settlementId = settlementId
         self.updatedSeq = updatedSeq
         self.pendingLocal = pendingLocal
+        self.note = note
     }
 
     convenience init(dto: OrderLineDTO) {
@@ -105,7 +110,8 @@ final class LocalOrderLine {
             voidedAt: dto.voidedAt,
             settlementId: dto.settlementId,
             updatedSeq: dto.updatedSeq,
-            pendingLocal: false
+            pendingLocal: false,
+            note: dto.note
         )
     }
 
@@ -121,6 +127,7 @@ final class LocalOrderLine {
         settlementId = dto.settlementId
         updatedSeq = dto.updatedSeq
         pendingLocal = false
+        note = dto.note
     }
 
     var unitPrice: Money { Money(cents: unitPriceCents) }

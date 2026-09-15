@@ -38,6 +38,9 @@ public struct OrderLineDTO: Codable, Hashable, Sendable, Identifiable {
     public var voidedAt: Date?
     public var settlementId: UUID?
     public var updatedSeq: Int
+    /// Sonderwunsch zur Position („ohne Senf"). Der Druckdienst liest sie hier
+    /// und setzt sie unter die Position auf den Küchenbon.
+    public var note: String?
 
     public init(
         id: UUID,
@@ -50,7 +53,8 @@ public struct OrderLineDTO: Codable, Hashable, Sendable, Identifiable {
         deviceId: String,
         voidedAt: Date? = nil,
         settlementId: UUID? = nil,
-        updatedSeq: Int
+        updatedSeq: Int,
+        note: String? = nil
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -63,11 +67,20 @@ public struct OrderLineDTO: Codable, Hashable, Sendable, Identifiable {
         self.voidedAt = voidedAt
         self.settlementId = settlementId
         self.updatedSeq = updatedSeq
+        self.note = note
     }
 
     public var lineTotal: Money { Money(cents: unitPriceCents * qty) }
     /// Offen = weder storniert noch kassiert.
     public var isOpen: Bool { voidedAt == nil && settlementId == nil }
+}
+
+/// Grenze der Positionsnotiz an genau einer Stelle: der Server kürzt darauf,
+/// die Eingabefelder in iOS und Android begrenzen darauf. Dieselbe Zahl dreimal
+/// im Code driftet auseinander.
+public enum OrderNote {
+    /// Rund drei Bonzeilen — mehr liest in der Küche niemand.
+    public static let maxLength = 120
 }
 
 public struct NewOrderLine: Codable, Hashable, Sendable {
@@ -78,13 +91,25 @@ public struct NewOrderLine: Codable, Hashable, Sendable {
     public var articleId: String
     public var qty: Int
     public var createdAt: Date
+    /// Ein `Optional` braucht keinen handgeschriebenen Decoder: die Offline-Queue
+    /// hält Buchungen als rohes `Data`, und eine vor dem Update eingereihte
+    /// Buchung ohne diesen Schlüssel muss lesbar bleiben.
+    public var note: String?
 
-    public init(id: UUID, tableNumber: Int, articleId: String, qty: Int, createdAt: Date) {
+    public init(
+        id: UUID,
+        tableNumber: Int,
+        articleId: String,
+        qty: Int,
+        createdAt: Date,
+        note: String? = nil
+    ) {
         self.id = id
         self.tableNumber = tableNumber
         self.articleId = articleId
         self.qty = qty
         self.createdAt = createdAt
+        self.note = note
     }
 }
 

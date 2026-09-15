@@ -101,6 +101,42 @@ struct BonPlannerTests {
         #expect(dritt.jobs.isEmpty)
     }
 
+    @Test("Die Notiz der Bestellzeile landet auf dem Bestell-Bon")
+    func notizLandetAufDemBestellbon() {
+        let jetzt = wienerZeit(6, 19, 42)
+        let ergebnis = planen([
+            zeile(Katalog.krainer, tisch: 5, qty: 2, createdAt: jetzt, note: "ohne Senf"),
+            zeile(Katalog.bratwurst, tisch: 5, createdAt: jetzt.addingTimeInterval(1))
+        ], now: jetzt)
+
+        #expect(ergebnis.jobs[0].items == [
+            BonJob.Item(qty: 2, name: "Käsekrainer mit Gebäck", note: "ohne Senf"),
+            BonJob.Item(qty: 1, name: "Bratwurst mit Pommes")
+        ])
+    }
+
+    /// Ohne Notiz auf dem Storno wüsste die Küche bei zwei gleichen Positionen
+    /// nicht, welche der beiden wegfällt.
+    @Test("Auch der Storno-Bon trägt die Notiz der Zeile")
+    func notizAufDemStornobon() {
+        let jetzt = wienerZeit(6, 19, 42)
+        let id = UUID()
+        let erst = planen([
+            zeile(Katalog.krainer, tisch: 5, qty: 2, id: id, createdAt: jetzt, note: "ohne Senf")
+        ], now: jetzt)
+        #expect(erst.jobs[0].items[0].note == "ohne Senf")
+
+        let stornoZeit = jetzt.addingTimeInterval(120)
+        let zweit = planen([
+            zeile(Katalog.krainer, tisch: 5, qty: 2, id: id, createdAt: jetzt, voidedAt: stornoZeit, seq: 2, note: "ohne Senf")
+        ], state: erst.state, now: stornoZeit)
+
+        #expect(zweit.jobs[0].kind == .cancellation)
+        #expect(zweit.jobs[0].items == [
+            BonJob.Item(qty: 2, name: "Käsekrainer mit Gebäck", note: "ohne Senf")
+        ])
+    }
+
     @Test("Eine Mengenreduktion ergibt einen Storno-Bon und einen neuen Bestell-Bon")
     func mengenreduktion() {
         let jetzt = wienerZeit(6, 19, 42)

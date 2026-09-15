@@ -45,7 +45,8 @@ func zeile(
     deviceId: String = "d-anna",
     voidedAt: Date? = nil,
     settlementId: UUID? = nil,
-    seq: Int = 1
+    seq: Int = 1,
+    note: String? = nil
 ) -> OrderLineDTO {
     OrderLineDTO(
         id: id,
@@ -58,7 +59,8 @@ func zeile(
         deviceId: deviceId,
         voidedAt: voidedAt,
         settlementId: settlementId,
-        updatedSeq: seq
+        updatedSeq: seq,
+        note: note
     )
 }
 

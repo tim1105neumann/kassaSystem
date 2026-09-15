@@ -10,6 +10,16 @@ enum ConnectionState: Equatable, Sendable {
     case needsLogin
 }
 
+/// Was gebucht werden soll: ein Artikel aus dem lokalen Katalog plus Menge.
+///
+/// `note` gilt für alle Stück dieser Position. Eine Buchung „2× mit Senf, 1×
+/// ohne“ gibt es bewusst nicht — wer das braucht, bucht zweimal.
+struct BookingItem {
+    let article: LocalArticle
+    let qty: Int
+    var note: String? = nil
+}
+
 /// Alles, was den lokalen Spiegel und die Offline-Queue anfasst, läuft hier auf
 /// dem MainActor. Der `SyncEngine` ruft nur noch diese Methoden.
 @MainActor
@@ -74,7 +84,7 @@ final class LocalStore {
 
     /// Bucht Artikel auf einen Tisch: sofort lokal sichtbar, gleichzeitig in die
     /// Queue. Die UI wartet nie auf das Netz.
-    func addLines(tableNumber: Int, items: [(article: LocalArticle, qty: Int)]) {
+    func addLines(tableNumber: Int, items: [BookingItem]) {
         let effective = items.filter { $0.qty > 0 }
         guard !effective.isEmpty else { return }
 
@@ -91,14 +101,16 @@ final class LocalStore {
                 unitPriceCents: item.article.priceCents,
                 qty: item.qty,
                 createdAt: now,
-                deviceId: settings.deviceId
+                deviceId: settings.deviceId,
+                note: item.note
             ))
             newLines.append(NewOrderLine(
                 id: id,
                 tableNumber: tableNumber,
                 articleId: item.article.id,
                 qty: item.qty,
-                createdAt: now
+                createdAt: now,
+                note: item.note
             ))
         }
 
@@ -116,6 +128,10 @@ final class LocalStore {
     /// Menge ändern. Der Vertrag kennt nur „ganze Zeile stornieren“, also wird
     /// beim Verringern die alte Zeile storniert und eine neue mit der Restmenge
     /// gebucht. Erhöhen ist einfach eine zusätzliche Buchung.
+    ///
+    /// Die Notiz wandert an jede dieser Neubuchungen mit und landet damit erneut
+    /// auf einem Küchenbon — Folge des Storno-und-neu-Mechanismus, und gewollt:
+    /// die Küche muss den Sonderwunsch zur neuen Menge noch einmal sehen.
     func changeQty(of line: LocalOrderLine, to newQty: Int) {
         guard line.isOpen, newQty != line.qty else { return }
 
@@ -130,7 +146,8 @@ final class LocalStore {
                 unitPriceCents: line.unitPriceCents,
                 qty: newQty - line.qty,
                 createdAt: now,
-                deviceId: settings.deviceId
+                deviceId: settings.deviceId,
+                note: line.note
             ))
             enqueue(.addLines, payload: CreateOrderLinesRequest(lines: [
                 NewOrderLine(
@@ -138,7 +155,8 @@ final class LocalStore {
                     tableNumber: line.tableNumber,
                     articleId: line.articleId,
                     qty: newQty - line.qty,
-                    createdAt: now
+                    createdAt: now,
+                    note: line.note
                 )
             ]))
             save()
@@ -150,6 +168,7 @@ final class LocalStore {
         let tableNumber = line.tableNumber
         let name = line.nameSnapshot
         let unitPrice = line.unitPriceCents
+        let note = line.note
 
         line.voidedAt = .now
         enqueue(.voidLine, payload: VoidLineCommand(lineId: line.id))
@@ -165,10 +184,18 @@ final class LocalStore {
                 unitPriceCents: unitPrice,
                 qty: remaining,
                 createdAt: now,
-                deviceId: settings.deviceId
+                deviceId: settings.deviceId,
+                note: note
             ))
             enqueue(.addLines, payload: CreateOrderLinesRequest(lines: [
-                NewOrderLine(id: id, tableNumber: tableNumber, articleId: articleId, qty: remaining, createdAt: now)
+                NewOrderLine(
+                    id: id,
+                    tableNumber: tableNumber,
+                    articleId: articleId,
+                    qty: remaining,
+                    createdAt: now,
+                    note: note
+                )
             ]))
         }
         save()

@@ -53,6 +53,8 @@ final class OrderLine: Model, @unchecked Sendable {
     @OptionalField(key: "voided_at") var voidedAt: Date?
     @OptionalField(key: "settlement_id") var settlementId: UUID?
     @Field(key: "updated_seq") var updatedSeq: Int
+    /// Sonderwunsch des Gastes. Nullable, weil die meisten Positionen keinen haben.
+    @OptionalField(key: "note") var note: String?
 
     init() {}
 
@@ -67,7 +69,8 @@ final class OrderLine: Model, @unchecked Sendable {
         deviceId: String,
         voidedAt: Date? = nil,
         settlementId: UUID? = nil,
-        updatedSeq: Int
+        updatedSeq: Int,
+        note: String? = nil
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -80,6 +83,7 @@ final class OrderLine: Model, @unchecked Sendable {
         self.voidedAt = voidedAt
         self.settlementId = settlementId
         self.updatedSeq = updatedSeq
+        self.note = note
     }
 
     func dto() throws -> OrderLineDTO {
@@ -94,7 +98,8 @@ final class OrderLine: Model, @unchecked Sendable {
             deviceId: deviceId,
             voidedAt: voidedAt,
             settlementId: settlementId,
-            updatedSeq: updatedSeq
+            updatedSeq: updatedSeq,
+            note: note
         )
     }
 }

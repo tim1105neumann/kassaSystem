@@ -96,7 +96,8 @@ actor FakeKassaAPI: KassaAPI {
                 qty: new.qty,
                 createdAt: new.createdAt,
                 deviceId: "fake-device",
-                updatedSeq: seq
+                updatedSeq: seq,
+                note: new.note
             )
         }
 

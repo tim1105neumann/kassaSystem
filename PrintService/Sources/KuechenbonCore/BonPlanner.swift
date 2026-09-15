@@ -13,11 +13,15 @@ public struct BonJob: Equatable, Sendable {
         /// Preis: der Koch braucht ihn nicht, und jede Zahl mehr ist eine Zahl,
         /// die er beim Überfliegen aussortieren muss.
         public var unitPriceCents: Int?
+        /// Sonderwunsch des Gastes, nur auf Küchenbons. Der Renderer sperrt ihn
+        /// auf der Aufstellung zusätzlich hart ab.
+        public var note: String?
 
-        public init(qty: Int, name: String, unitPriceCents: Int? = nil) {
+        public init(qty: Int, name: String, unitPriceCents: Int? = nil, note: String? = nil) {
             self.qty = qty
             self.name = name
             self.unitPriceCents = unitPriceCents
+            self.note = note
         }
     }
 
@@ -162,7 +166,9 @@ public enum BonPlanner {
                     // und die Küche hält ihn für einen Doppeldruck.
                     time: lines[0].voidedAt ?? lines[0].createdAt,
                     deviceName: deviceNames[lines[0].deviceId],
-                    items: lines.map { BonJob.Item(qty: $0.qty, name: $0.nameSnapshot) },
+                    // Der Sonderwunsch steht auch auf dem Storno: die Küche muss
+                    // wissen, welches der zwei Krainer ohne Senf wegfällt.
+                    items: lines.map { BonJob.Item(qty: $0.qty, name: $0.nameSnapshot, note: $0.note) },
                     originalBonNumbers: Set(cancelled.compactMap(\.originalBon)).sorted()
                 ))
                 for entry in cancelled {
@@ -184,7 +190,7 @@ public enum BonPlanner {
                     bonNumber: bonNumber,
                     time: ordered[0].createdAt,
                     deviceName: deviceNames[ordered[0].deviceId],
-                    items: ordered.map { BonJob.Item(qty: $0.qty, name: $0.nameSnapshot) },
+                    items: ordered.map { BonJob.Item(qty: $0.qty, name: $0.nameSnapshot, note: $0.note) },
                     originalBonNumbers: []
                 ))
                 for line in ordered {

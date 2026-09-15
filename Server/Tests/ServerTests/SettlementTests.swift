@@ -70,6 +70,33 @@ struct SettlementTests {
         }
     }
 
+    @Test("Die Notiz übersteht den Split beim Teilkassieren")
+    func noteSurvivesPartialSettlement() async throws {
+        try await withKassaApp { harness in
+            try await harness.importPriceList()
+            let token = try await harness.login().token
+            let article = try await harness.article(named: "Berner Würstel mit Gebäck", token: token)
+            let lineID = UUID()
+            try await harness.book(
+                [NewOrderLine(id: lineID, tableNumber: 8, articleId: article.id, qty: 3, createdAt: Date(), note: "ohne Senf")],
+                token: token
+            )
+
+            let response = try await harness.send(.POST, APIRoute.settlements, token: token, body: CreateSettlementRequest(
+                id: UUID(), tableNumber: 8,
+                lines: [SettlementLineSelection(lineId: lineID, qty: 2)],
+                amountCents: 1240, paidAt: Date()
+            ))
+            #expect(response.status == .ok)
+
+            let lines = try await OrderLine.query(on: harness.db).all()
+            #expect(lines.count == 2)
+            // Beide Hälften behalten den Sonderwunsch: der kassierte Anteil steht
+            // auf der Aufstellung, der Rest kann noch storniert werden.
+            #expect(lines.allSatisfy { $0.note == "ohne Senf" })
+        }
+    }
+
     @Test("Teilmenge: 2 von 3 kassiert, der Rest bleibt am Tisch offen")
     func partialSettlementSplitsLine() async throws {
         try await withKassaApp { harness in

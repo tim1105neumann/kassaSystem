@@ -193,12 +193,33 @@ struct CalculationTests {
         env.seedCatalog()
         let bier = try env.article("b1")
 
-        env.store.addLines(tableNumber: 20, items: [(bier, 3)])
+        env.store.addLines(tableNumber: 20, items: [BookingItem(article: bier, qty: 3)])
         let line = try #require(env.store.lines(forTable: 20).first)
         env.store.changeQty(of: line, to: 1)
 
         #expect(env.openTotal(table: 20) == Money(cents: 440))
         // Buchung + Storno + Restbuchung
         #expect(env.store.openPendingCount == 3)
+    }
+
+    @Test("Mengenänderung nimmt die Notiz in beide Richtungen mit")
+    func changingQtyKeepsNote() throws {
+        let env = try TestEnvironment()
+        env.seedCatalog()
+        let krainer = try env.article("a1")
+
+        env.store.addLines(tableNumber: 21, items: [BookingItem(article: krainer, qty: 2, note: "ohne Senf")])
+        let booked = try #require(env.store.lines(forTable: 21).first)
+
+        env.store.changeQty(of: booked, to: 5)
+        let added = try #require(env.store.lines(forTable: 21).first { $0.id != booked.id })
+        #expect(added.qty == 3)
+        #expect(added.note == "ohne Senf", "Erhöhen bucht die Notiz mit")
+
+        env.store.changeQty(of: booked, to: 1)
+        let rebooked = try #require(env.store.lines(forTable: 21).first { $0.id != booked.id && $0.id != added.id })
+        #expect(rebooked.qty == 1)
+        #expect(rebooked.note == "ohne Senf", "Verringern bucht die Notiz mit")
+        #expect(booked.voidedAt != nil)
     }
 }

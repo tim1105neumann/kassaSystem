@@ -97,6 +97,11 @@ struct SettlementView: View {
                         } label: {
                             Text("\(line.qty)× \(line.nameSnapshot)")
                                 .font(.headline)
+                            if let note = line.note, !note.isEmpty {
+                                Text(note)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     } else {
                         PartialLineRow(line: line, selected: selection.qty(for: line.id)) { qty in
@@ -407,6 +412,11 @@ private struct PartialLineRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            if let note = line.note, !note.isEmpty {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
             HStack(spacing: 16) {
                 Text("\(selected) von \(line.qty)")
                     .font(.title3.weight(.semibold).monospacedDigit())
@@ -434,7 +444,11 @@ private struct PartialLineRow: View {
         }
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(line.nameSnapshot), \(selected) von \(line.qty) ausgewählt")
+        .accessibilityLabel(
+            (line.note?.isEmpty == false)
+                ? String(localized: "\(line.nameSnapshot), \(line.note ?? ""), \(selected) von \(line.qty) ausgewählt")
+                : String(localized: "\(line.nameSnapshot), \(selected) von \(line.qty) ausgewählt")
+        )
     }
 }
 

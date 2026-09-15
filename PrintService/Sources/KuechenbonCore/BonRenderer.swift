@@ -106,6 +106,28 @@ public enum BonRenderer {
                     rows.append(Row(links))
                 }
             }
+
+            // Erst nach der Namens-Schleife, damit der rechtsbündige Betrag auf
+            // der letzten *Namens*zeile bleibt. Auf der Aufstellung bleibt der
+            // Sonderwunsch weg: die ist ein Preiszettel zum Nachrechnen für den
+            // Gast, Küchenanweisungen machen sie nur unruhig. Die Sperre steht
+            // hier und nicht nur im Planer, weil sie fachlich ist und nicht an
+            // einer vergessenen Zeile in `planOverviews` hängen darf.
+            if let note = item.note, job.kind != .overview {
+                let einzug = String(repeating: " ", count: prefix.count)
+                // ASCII: „»" gäbe es in CP437, käme aber im Fallback als „?".
+                let marker = ">> "
+                // Vier Zeichen Reserve, weil `centered`, `spread` und `wrapped`
+                // in Zeichen rechnen, der Drucker aber Bytes zählt: mit
+                // `asciiFallback` wird aus „ü" ein „ue", und eine randvolle
+                // Zeile bräche er selbst noch einmal um. Freitext vom Kellner
+                // ist umlautreicher als die kurzen Namen aus der Preisliste.
+                let notizBreite = width - einzug.count - marker.count - 4
+                for (index, teil) in wrapped(note, to: notizBreite).enumerated() {
+                    let fortsetzung = String(repeating: " ", count: marker.count)
+                    rows.append(Row(einzug + (index == 0 ? marker : fortsetzung) + teil))
+                }
+            }
         }
 
         rows.append(Row(String(repeating: "-", count: width)))

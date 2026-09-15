@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Ab Android 16 schirmt „Local Network Protection" das lokale Netz ab: ohne
+         diese Berechtigung laeuft jede Verbindung zu einer RFC1918-Adresse in den
+         Zeitablauf, waehrend das offene Internet weiter erreichbar ist. Der
+         Emulator erreicht den Entwicklungsserver ueber 10.0.2.2, also genau so
+         eine Adresse.
+
+         Bewusst **nur im Debug-Build**: im Betrieb haengen die Geraete am
+         Mobilfunknetz und erreichen den Server ueber die oeffentliche Domain per
+         HTTPS (siehe deploy/README.md). Dort greift die Sperre gar nicht, und ein
+         Berechtigungsdialog „Zugriff auf Geraete im lokalen Netzwerk?" beim
+         ersten Start einer Kassa-App waere nur erklaerungsbeduerftig.
+
+         Schutzstufe „dangerous" — sie muss zur Laufzeit erfragt werden, siehe
+         LocalNetworkPermission.kt. Die dortige Abfrage ist an BuildConfig.DEBUG
+         gebunden, damit der Release-Build nichts anfordert, was er nicht
+         deklariert. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <!-- Nur im Debug-Build: Klartext-HTTP fuer den Emulator-Host (10.0.2.2).
+         Der Release-Build bleibt bei reinem HTTPS. -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+
+</manifest>

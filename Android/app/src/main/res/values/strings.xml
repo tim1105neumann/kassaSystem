@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kassa</string>
+
+    <!-- Navigation -->
+    <string name="title_tables">Tische</string>
+    <string name="title_login">Anmelden</string>
+    <string name="title_day_report">Tagesabschluss</string>
+    <string name="title_settings">Einstellungen</string>
+    <string name="action_back">Zurück</string>
+
+    <!-- Start -->
+    <string name="startup_loading">Wird geladen …</string>
+
+    <!-- Anmeldung -->
+    <string name="login_section_server">Server</string>
+    <string name="login_section_credentials">Anmeldung</string>
+    <string name="login_server_placeholder">https://kassa.example.at</string>
+    <string name="login_device_name">Gerätename</string>
+    <string name="login_password">Passwort</string>
+    <string name="login_submit">Anmelden</string>
+
+    <!-- Verbindungsbanner -->
+    <string name="banner_transmitting">Wird übertragen …</string>
+    <string name="banner_connected">Verbunden</string>
+    <string name="banner_syncing">Wird abgeglichen …</string>
+    <string name="banner_offline">Offline</string>
+    <string name="banner_needs_login">Nicht angemeldet</string>
+    <string name="banner_pending_count">%d Buchungen ausstehend</string>
+    <string name="banner_failed_count">%d fehlgeschlagen</string>
+    <string name="banner_offline_detail">Angezeigter Stand ist nicht der geteilte</string>
+    <string name="banner_needs_login_detail">Bitte in den Einstellungen anmelden</string>
+    <!-- Verkettet die Detailangaben, genau wie ConnectionBanner.swift sie fügt. -->
+    <!-- In Anfuehrungszeichen, sonst verschluckt Android die Leerzeichen am Rand. -->
+    <string name="banner_detail_separator">" · "</string>
+
+    <!-- Tischraster -->
+    <string name="table_title">Tisch %d</string>
+    <string name="table_free">frei</string>
+    <string name="table_open_since_minutes">seit %d min</string>
+    <string name="table_open_since_hours">seit %1$d h %2$d min</string>
+    <string name="table_accessibility_open">Tisch %1$d, offen %2$s, %3$s</string>
+    <string name="table_accessibility_free">Tisch %1$d, frei</string>
+
+    <!-- Hinweise -->
+    <string name="dialog_notice_title">Hinweis</string>
+    <string name="dialog_ok">OK</string>
+
+    <!-- Tischdetail -->
+    <string name="detail_unit_price">%s / Stück</string>
+    <string name="detail_total">Gesamt</string>
+    <string name="detail_add_articles">+ Artikel</string>
+    <string name="detail_settle">Kassieren</string>
+    <string name="detail_empty_title">Noch nichts gebucht</string>
+    <string name="detail_empty_message">Mit „+ Artikel“ die erste Bestellung aufnehmen.</string>
+    <string name="detail_a11y_decrement">Eins weniger</string>
+    <string name="detail_a11y_increment">Eins mehr</string>
+    <string name="detail_a11y_qty">Menge %d</string>
+    <string name="detail_a11y_total">Gesamtsumme %s</string>
+    <string name="detail_a11y_line">%1$s, %2$s</string>
+    <string name="detail_a11y_line_note">%1$s, %2$s, Notiz: %3$s</string>
+
+    <!-- Artikelauswahl -->
+    <string name="articles_category">Kategorie</string>
+    <string name="articles_empty_title">Kein Katalog geladen</string>
+    <string name="articles_empty_message">Die Artikelliste kommt vom Server. Bitte Verbindung prüfen.</string>
+    <string name="articles_draft">Vorgang</string>
+    <string name="articles_book">Buchen</string>
+    <string name="articles_a11y_draft_total">Summe dieses Vorgangs %s</string>
+    <string name="articles_a11y_tile">%1$s, %2$s</string>
+    <string name="articles_a11y_tile_chosen">%1$s, %2$s, %3$d gewählt</string>
+    <string name="articles_a11y_tile_chosen_note">%1$s, %2$s, %3$d gewählt, Notiz: %4$s</string>
+    <string name="articles_a11y_decrement">Ein %s weniger</string>
+    <string name="articles_note">Notiz</string>
+    <string name="articles_note_title">Notiz zu %s</string>
+    <string name="articles_note_placeholder">z. B. ohne Senf</string>
+    <string name="articles_a11y_note">Notiz zu %s bearbeiten</string>
+    <!-- Vorlagen-Chips im Notizdialog. Die Reihenfolge steht in ArticlePickerScreen.kt. -->
+    <string name="articles_note_ohne_senf">ohne Senf</string>
+    <string name="articles_note_extra_senf">extra Senf</string>
+    <string name="articles_note_ohne_ketchup">ohne Ketchup</string>
+    <string name="articles_note_extra_ketchup">extra Ketchup</string>
+    <string name="articles_note_ohne_zwiebel">ohne Zwiebel</string>
+    <string name="articles_note_scharf">scharf</string>
+
+    <!-- Kassieren -->
+    <string name="settle_title">Tisch %d kassieren</string>
+    <string name="settle_scope">Umfang</string>
+    <string name="settle_scope_all">Alles kassieren</string>
+    <string name="settle_scope_partial">Teilbetrag</string>
+    <string name="settle_line">%1$d× %2$s</string>
+    <string name="settle_partial_qty">%1$d von %2$d</string>
+    <string name="settle_a11y_partial_line">%1$s, %2$d von %3$d ausgewählt</string>
+    <string name="settle_a11y_partial_line_note">%1$s, %2$d von %3$d ausgewählt, Notiz: %4$s</string>
+    <string name="settle_amount">Betrag</string>
+    <string name="settle_a11y_amount">Betrag %s</string>
+    <string name="settle_print">Aufstellung</string>
+    <string name="settle_a11y_print">Aufstellung zum Nachrechnen drucken</string>
+    <string name="settle_print_done">Aufstellung liegt in der Küche</string>
+    <string name="settle_next">Weiter</string>
+    <string name="settle_confirm">Kassieren bestätigen</string>
+    <string name="settle_payable">Zu zahlen</string>
+    <string name="settle_a11y_payable">Zu zahlen %s</string>
+    <string name="settle_tip_prompt">Macht</string>
+    <string name="settle_a11y_tip_field">Betrag, den der Gast nennt</string>
+    <string name="settle_tip">Trinkgeld</string>
+    <string name="settle_a11y_tip">Trinkgeld %s</string>
+    <string name="settle_tip_below">Weniger als die Rechnung</string>
+    <string name="settle_given">Gegeben</string>
+    <string name="settle_a11y_given_field">Gegebener Betrag</string>
+    <string name="settle_given_placeholder">0,00</string>
+    <string name="settle_change">Rückgeld</string>
+    <string name="settle_a11y_change">Rückgeld %s</string>
+    <string name="settle_change_missing">Es fehlen noch %s</string>
+    <string name="settle_quick_exact">passend</string>
+
+    <!-- Artikelkategorien: intern ohne Umlaut (CSV), angezeigt mit. -->
+    <string name="category_speisen">Speisen</string>
+    <string name="category_getraenke">Getränke</string>
+
+    <!-- Tagesabschluss -->
+    <string name="report_business_day">Betriebstag</string>
+    <string name="report_cutoff_footnote">Die Zahlen stammen aus dem Betriebstag, nicht aus dem Kalendertag. Ein neuer Betriebstag beginnt um %d:00 Uhr.</string>
+    <string name="report_error_title">Nicht ladbar</string>
+    <string name="report_section_total">Umsatz</string>
+    <string name="report_settlement_count">%1$d Kassiervorgänge · Betriebstag %2$s</string>
+    <string name="report_tip">Trinkgeld</string>
+    <string name="report_grand_total">Kassa gesamt</string>
+    <string name="report_section_categories">Nach Kategorie</string>
+    <string name="report_section_top">Meistverkauft</string>
+    <string name="report_top_line">%1$d× %2$s</string>
+    <string name="report_section_settlements">Kassiervorgänge</string>
+    <string name="report_settlement_tip">inkl. %s Trinkgeld</string>
+    <string name="report_a11y_total">Umsatz %1$s, %2$s</string>
+    <string name="report_a11y_row">%1$s, %2$s</string>
+    <string name="report_a11y_loading">Bericht wird geladen</string>
+
+    <!-- Einstellungen -->
+    <string name="settings_section_connection">Verbindung</string>
+    <string name="settings_status">Status</string>
+    <string name="settings_status_connected">Verbunden</string>
+    <string name="settings_status_syncing">Wird abgeglichen</string>
+    <string name="settings_status_offline">Offline</string>
+    <string name="settings_status_needs_login">Nicht angemeldet</string>
+    <string name="settings_last_sync">Letzter Abgleich</string>
+    <string name="settings_sync_now">Jetzt abgleichen</string>
+    <string name="settings_section_queue">Offline-Warteschlange</string>
+    <string name="settings_queue_empty">Keine ausstehenden Buchungen.</string>
+    <string name="settings_queue_footnote">Dauerhaft fehlgeschlagene Buchungen blockieren die Warteschlange nicht. Sie können hier verworfen werden — die Buchung ist dann endgültig verloren.</string>
+    <string name="settings_queue_add_lines">Buchung</string>
+    <string name="settings_queue_void_line">Storno</string>
+    <string name="settings_queue_settle">Kassiervorgang</string>
+    <string name="settings_queue_failure">%1$d Versuche · %2$s</string>
+    <string name="settings_queue_discard">Verwerfen</string>
+    <string name="settings_a11y_discard">%s verwerfen</string>
+    <string name="settings_logout">Abmelden</string>
+    <string name="settings_logout_title">Wirklich abmelden?</string>
+    <string name="settings_logout_message">Die lokalen Daten werden von diesem Gerät gelöscht. Am Server bleibt alles erhalten.</string>
+    <string name="settings_logout_footnote">Beim Abmelden werden die lokalen Daten von diesem Gerät gelöscht. Am Server bleibt alles erhalten.</string>
+    <string name="settings_logout_blocked">Abmelden ist gesperrt: %s noch nicht am Server. Sobald wieder Netz da ist, wird das automatisch übertragen.</string>
+    <string name="settings_logout_pending_one">eine Buchung ist</string>
+    <string name="settings_logout_pending_many">%d Buchungen sind</string>
+    <string name="settings_legal">Diese App ist eine Rechenhilfe und keine registrierte Kassa im Sinne der RKSV. Kein Belegdruck, keine Signatureinheit.</string>
+
+    <!-- Allgemeine Aktionen -->
+    <string name="action_done">Fertig</string>
+    <string name="action_cancel">Abbrechen</string>
+</resources>

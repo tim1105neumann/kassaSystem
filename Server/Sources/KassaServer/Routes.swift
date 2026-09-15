@@ -150,6 +150,40 @@ func retentionStart(now: Date, cutoffHour: Int) -> Date {
 
 // MARK: - Bestellzeilen
 
+/// Anders als Name und Preis kann die Notiz nur vom Client kommen — sie ist
+/// Kellnertext und steht in keinem Katalog. Umso mehr muss sie hier durch, denn
+/// am Ende der Kette steht ein Bondrucker mit Codepage 437.
+///
+/// Eine zu lange Notiz wird abgeschnitten und nicht mit 400 abgelehnt: ein
+/// verrutschter Daumen darf keine Buchung blockieren.
+private func sanitizedNote(_ raw: String?) -> String? {
+    guard let raw else { return nil }
+
+    // Das iOS-Keyboard ersetzt Apostroph und Bindestrich automatisch durch ihre
+    // typographischen Geschwister; CP437 kennt die nur als „?“. Umlaute bleiben,
+    // die kann der Drucker.
+    var text = raw
+    for (weich, hart) in [("\u{2018}", "'"), ("\u{2019}", "'"),
+                          ("\u{201C}", "\""), ("\u{201D}", "\""),
+                          ("\u{2013}", "-"), ("\u{2014}", "-")] {
+        text = text.replacingOccurrences(of: weich, with: hart)
+    }
+
+    // Ein durchgelassenes `\n` wäre kein Schönheitsfehler: der Renderer bricht
+    // nur an Leerzeichen um, der Drucker schreibt den Umbruch also mitten in
+    // eine Bonzeile — bei einer doppelt großen Zeile sogar zwischen die beiden
+    // ESC/POS-Sequenzen. Zerlegen und mit einem Leerzeichen fügen wirft
+    // Steuerzeichen weg, zieht Mehrfach-Leerzeichen zusammen und trimmt in
+    // einem Schritt.
+    let sauber = text.split(whereSeparator: { character in
+        character.isWhitespace
+            || character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+    }).joined(separator: " ")
+
+    guard !sauber.isEmpty else { return nil }
+    return String(sauber.prefix(OrderNote.maxLength))
+}
+
 @Sendable
 private func createOrderLines(request: Request) async throws -> [OrderLineDTO] {
     let body = try request.content.decode(CreateOrderLinesRequest.self)
@@ -190,7 +224,8 @@ private func createOrderLines(request: Request) async throws -> [OrderLineDTO] {
                 qty: new.qty,
                 createdAt: new.createdAt,
                 deviceId: deviceId,
-                updatedSeq: seq
+                updatedSeq: seq,
+                note: sanitizedNote(new.note)
             )
             try await line.create(on: db)
             result.append(try line.dto())

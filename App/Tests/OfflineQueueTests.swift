@@ -14,7 +14,7 @@ struct OfflineQueueTests {
         env.seedCatalog()
 
         let bier = try env.article("b1")
-        env.store.addLines(tableNumber: 5, items: [(bier, 2)])
+        env.store.addLines(tableNumber: 5, items: [BookingItem(article: bier, qty: 2)])
 
         #expect(env.openTotal(table: 5) == Money(cents: 880))
         #expect(env.store.openPendingCount == 1)
@@ -27,7 +27,7 @@ struct OfflineQueueTests {
         env.seedCatalog()
 
         let bier = try env.article("b1")
-        env.store.addLines(tableNumber: 5, items: [(bier, 2)])
+        env.store.addLines(tableNumber: 5, items: [BookingItem(article: bier, qty: 2)])
 
         // Der Server wendet den Command an, die Antwort geht aber verloren.
         await env.api.setLoseNextResponse(true)
@@ -53,8 +53,8 @@ struct OfflineQueueTests {
 
         let bier = try env.article("b1")
         let krainer = try env.article("a1")
-        env.store.addLines(tableNumber: 2, items: [(bier, 1)])
-        env.store.addLines(tableNumber: 2, items: [(krainer, 1)])
+        env.store.addLines(tableNumber: 2, items: [BookingItem(article: bier, qty: 1)])
+        env.store.addLines(tableNumber: 2, items: [BookingItem(article: krainer, qty: 1)])
         #expect(env.store.openPendingCount == 2)
 
         await env.api.setNextOrderLinesError(.server(status: 400, reason: "kaputt"))
@@ -74,7 +74,7 @@ struct OfflineQueueTests {
         env.seedCatalog()
 
         let bier = try env.article("b1")
-        env.store.addLines(tableNumber: 2, items: [(bier, 1)])
+        env.store.addLines(tableNumber: 2, items: [BookingItem(article: bier, qty: 1)])
         await env.api.setNextOrderLinesError(.server(status: 400, reason: "kaputt"))
         await env.engine.syncNow()
 
@@ -83,5 +83,27 @@ struct OfflineQueueTests {
         env.store.discardCommand(id: failed.id)
 
         #expect(env.store.pendingCommands().isEmpty)
+    }
+
+    @Test("Die Positionsnotiz steht im Queue-Payload und erreicht den Server")
+    func noteTravelsThroughQueue() async throws {
+        let env = try TestEnvironment()
+        await env.api.setOffline(true)
+        env.seedCatalog()
+
+        let krainer = try env.article("a1")
+        env.store.addLines(tableNumber: 4, items: [BookingItem(article: krainer, qty: 1, note: "ohne Senf")])
+
+        let command = try #require(env.store.nextPendingCommand())
+        let request = try KassaJSON.decoder.decode(CreateOrderLinesRequest.self, from: command.payload)
+        #expect(request.lines.first?.note == "ohne Senf")
+
+        await env.api.setOffline(false)
+        await env.engine.syncNow()
+
+        let lineId = try #require(request.lines.first?.id)
+        #expect(await env.api.serverLine(id: lineId)?.note == "ohne Senf")
+        #expect(env.store.openPendingCount == 0)
+        #expect(env.store.lines(forTable: 4).first?.note == "ohne Senf")
     }
 }

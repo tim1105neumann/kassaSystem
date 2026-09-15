@@ -40,6 +40,59 @@ struct DTOCodingTests {
         #expect(!storniert.isOpen)
     }
 
+    @Test("Die Positionsnotiz überlebt den Rundlauf")
+    func orderLineNoteRoundTrip() throws {
+        let original = OrderLineDTO(
+            id: UUID(),
+            tableNumber: 5,
+            articleId: "abc123",
+            nameSnapshot: "Käsekrainer mit Gebäck",
+            unitPriceCents: 620,
+            qty: 1,
+            createdAt: Date(timeIntervalSince1970: 1_780_000_000),
+            deviceId: "device-a",
+            updatedSeq: 3,
+            note: "ohne Senf"
+        )
+        let decoded = try KassaJSON.decoder.decode(
+            OrderLineDTO.self,
+            from: try KassaJSON.encoder.encode(original)
+        )
+        #expect(decoded == original)
+        #expect(decoded.note == "ohne Senf")
+    }
+
+    /// Derselbe Fall wie bei `tipCents`: in der Offline-Queue liegen Buchungen
+    /// als rohes `Data`, die noch ohne `note` geschrieben wurden.
+    @Test("Eine Buchung ohne note-Schlüssel dekodiert zu nil")
+    func orderLineWithoutNoteDecodes() throws {
+        let neu = """
+        {
+          "id": "6A3D2E64-1C1C-4C0E-9B2C-1F7E9E2A1B03",
+          "tableNumber": 3,
+          "articleId": "abc123",
+          "qty": 2,
+          "createdAt": "2026-09-05T21:00:00Z"
+        }
+        """
+        #expect(try KassaJSON.decoder.decode(NewOrderLine.self, from: Data(neu.utf8)).note == nil)
+
+        let bestehend = """
+        {
+          "id": "6A3D2E64-1C1C-4C0E-9B2C-1F7E9E2A1B04",
+          "tableNumber": 3,
+          "articleId": "abc123",
+          "nameSnapshot": "Kaffee",
+          "unitPriceCents": 350,
+          "qty": 2,
+          "createdAt": "2026-09-05T21:00:00Z",
+          "deviceId": "device-a",
+          "updatedSeq": 4
+        }
+        """
+        #expect(try KassaJSON.decoder.decode(OrderLineDTO.self, from: Data(bestehend.utf8)).note == nil)
+    }
+
     @Test("Trinkgeld überlebt den Rundlauf und zählt nicht zum Umsatz")
     func settlementTipRoundTrip() throws {
         let original = SettlementDTO(

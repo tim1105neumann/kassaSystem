@@ -88,6 +88,22 @@ struct AddSettlementTip: AsyncMigration {
     }
 }
 
+struct AddOrderLineNote: AsyncMigration {
+    func prepare(on database: any Database) async throws {
+        // Ohne SQL-Default, anders als bei `tip_cents`: die Spalte ist nullable,
+        // und „keine Notiz" ist genau NULL.
+        try await database.schema(OrderLine.schema)
+            .field("note", .string)
+            .update()
+    }
+
+    func revert(on database: any Database) async throws {
+        try await database.schema(OrderLine.schema)
+            .deleteField("note")
+            .update()
+    }
+}
+
 struct CreatePrintRequests: AsyncMigration {
     func prepare(on database: any Database) async throws {
         try await database.schema(PrintRequest.schema)
