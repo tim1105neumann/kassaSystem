@@ -97,6 +97,10 @@ private struct OrderLineRow: View {
     let line: LocalOrderLine
     let onQtyChange: (Int) -> Void
 
+    // Rückfrage nur, wenn Minus die Zeile auf 0 bringen und damit stornieren
+    // würde — ein Fehltipp am Tisch soll nicht ungefragt eine Position löschen.
+    @State private var showsVoidConfirmation = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
@@ -123,7 +127,11 @@ private struct OrderLineRow: View {
                 Spacer(minLength: 0)
 
                 stepperButton(systemImage: "minus", label: String(localized: "Eins weniger")) {
-                    onQtyChange(line.qty - 1)
+                    if line.qty == 1 {
+                        showsVoidConfirmation = true
+                    } else {
+                        onQtyChange(line.qty - 1)
+                    }
                 }
                 Text("\(line.qty)")
                     .font(.title2.weight(.bold).monospacedDigit())
@@ -135,6 +143,18 @@ private struct OrderLineRow: View {
             }
         }
         .padding(.vertical, 8)
+        .confirmationDialog(
+            String(localized: "Position stornieren?"),
+            isPresented: $showsVoidConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Stornieren"), role: .destructive) {
+                onQtyChange(0)
+            }
+            Button(String(localized: "Abbrechen"), role: .cancel) {}
+        } message: {
+            Text("„\(line.nameSnapshot)“ wird vom Tisch genommen.")
+        }
     }
 
     private func stepperButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {

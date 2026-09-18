@@ -59,6 +59,9 @@
     <string name="detail_a11y_total">Gesamtsumme %s</string>
     <string name="detail_a11y_line">%1$s, %2$s</string>
     <string name="detail_a11y_line_note">%1$s, %2$s, Notiz: %3$s</string>
+    <string name="detail_cancel_line_title">Position stornieren?</string>
+    <string name="detail_cancel_line_message">„%s“ wird vom Tisch genommen.</string>
+    <string name="detail_cancel_line_confirm">Stornieren</string>
 
     <!-- Artikelauswahl -->
     <string name="articles_category">Kategorie</string>

@@ -17,8 +17,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -184,7 +190,9 @@ fun TableDetailScreen(
  *
  * Minus auf 0 storniert die Zeile — das ist die Vorlage und zugleich der einzige
  * Weg, den der Vertrag kennt: „ganze Zeile stornieren", nicht „Menge senken".
- * Deshalb ist der Minusknopf bei Menge 1 auch nicht gesperrt.
+ * Deshalb ist der Minusknopf bei Menge 1 auch nicht gesperrt, fragt aber
+ * vorher nach: ein Fehltipp am Tisch soll keine gebuchte Position sofort
+ * loeschen.
  */
 @Composable
 private fun OrderLineRow(
@@ -193,6 +201,13 @@ private fun OrderLineRow(
     modifier: Modifier = Modifier,
 ) {
     val colors = KassaTheme.colors
+
+    // Reiner UI-Zustand fuer die Rueckfrage bei Menge 1 — der Store bekommt
+    // erst nach der Bestaetigung den gewohnten Aufruf zu sehen. Lokal an
+    // dieser Zeile gehalten (der LazyColumn-Key ist line.id), deshalb ist die
+    // betroffene Zeile immer eindeutig, auch wenn sich die Liste darunter
+    // aendert.
+    var showCancelConfirmation by remember { mutableStateOf(false) }
 
     val note = line.note?.takeIf { it.isNotBlank() }
     val lineSpoken = if (note != null) {
@@ -274,7 +289,13 @@ private fun OrderLineRow(
             KassaStepperButton(
                 icon = Icons.Filled.Remove,
                 contentDescription = stringResource(R.string.detail_a11y_decrement),
-                onClick = { onChangeQty(line.qty - 1) },
+                onClick = {
+                    if (line.qty == 1) {
+                        showCancelConfirmation = true
+                    } else {
+                        onChangeQty(line.qty - 1)
+                    }
+                },
             )
             Text(
                 text = "${line.qty}",
@@ -294,6 +315,31 @@ private fun OrderLineRow(
                 onClick = { onChangeQty(line.qty + 1) },
             )
         }
+    }
+
+    if (showCancelConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showCancelConfirmation = false },
+            title = { Text(stringResource(R.string.detail_cancel_line_title)) },
+            text = {
+                Text(
+                    stringResource(R.string.detail_cancel_line_message, line.nameSnapshot),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCancelConfirmation = false
+                    onChangeQty(0)
+                }) {
+                    Text(stringResource(R.string.detail_cancel_line_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelConfirmation = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 }
 
