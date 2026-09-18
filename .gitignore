@@ -16,5 +16,15 @@ backups/
 .env
 *.p12
 *.mobileprovision
+# Android-Signaturschlüssel: Wer ihn hat, kann Updates für die Kellnerhandys
+# bauen, die Android als echt akzeptiert. Gehört ins Backup, nie ins Repo.
+*.jks
+*.keystore
+keystore.properties
+
+# Signierte Builds
+*.apk
+*.aab
+*.apk.idsig
 
 .DS_Store
