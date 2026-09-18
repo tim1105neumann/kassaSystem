@@ -202,6 +202,88 @@ struct CalculationTests {
         #expect(env.store.openPendingCount == 3)
     }
 
+    @Test("Eine Buchung behält die Reihenfolge des Warenkorbs")
+    func bookingKeepsCartOrder() throws {
+        let env = try TestEnvironment()
+        env.seedCatalog()
+        let krainer = try env.article("a1")
+        let bier = try env.article("b1")
+
+        // Beide Zeilen entstehen mit demselben `createdAt`; ohne eigenen
+        // Schlüssel entschiede die Datenbank über die Reihenfolge.
+        env.store.addLines(tableNumber: 22, items: [
+            BookingItem(article: krainer, qty: 1),
+            BookingItem(article: bier, qty: 1)
+        ])
+
+        let open = TableTotals.openLines(of: env.store.lines(forTable: 22))
+        #expect(open.map(\.articleId) == ["a1", "b1"])
+    }
+
+    @Test("Die Restmenge bleibt an der Stelle der alten Zeile")
+    func remainderKeepsItsPlace() throws {
+        let env = try TestEnvironment()
+        env.seedCatalog()
+        let krainer = try env.article("a1")
+        let bier = try env.article("b1")
+
+        env.store.addLines(tableNumber: 23, items: [
+            BookingItem(article: krainer, qty: 3),
+            BookingItem(article: bier, qty: 1)
+        ])
+
+        let first = try #require(TableTotals.openLines(of: env.store.lines(forTable: 23)).first)
+        env.store.changeQty(of: first, to: 2)
+
+        let open = TableTotals.openLines(of: env.store.lines(forTable: 23))
+        #expect(open.map(\.articleId) == ["a1", "b1"], "die Restmenge ist ans Listenende gesprungen")
+        #expect(open.first?.qty == 2)
+    }
+
+    @Test("Eine Nachbestellung reiht sich hinten ein")
+    func increasingQtyAppends() throws {
+        let env = try TestEnvironment()
+        env.seedCatalog()
+        let krainer = try env.article("a1")
+        let bier = try env.article("b1")
+
+        env.store.addLines(tableNumber: 24, items: [
+            BookingItem(article: krainer, qty: 1),
+            BookingItem(article: bier, qty: 1)
+        ])
+
+        let first = try #require(TableTotals.openLines(of: env.store.lines(forTable: 24)).first)
+        env.store.changeQty(of: first, to: 2)
+
+        let open = TableTotals.openLines(of: env.store.lines(forTable: 24))
+        #expect(open.map(\.articleId) == ["a1", "b1", "a1"])
+    }
+
+    @Test("Zeilen ohne eigenen Schlüssel gehen nach dem Buchungszeitpunkt")
+    func linesWithoutKeyFallBackToCreatedAt() {
+        // Zeilen von einem anderen Gerät: das Protokoll trägt keinen
+        // Sortierschlüssel, sie müssen sich trotzdem eindeutig einreihen.
+        let früh = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let spät = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let now = Date.now
+
+        func foreign(_ id: UUID, createdAt: Date) -> LocalOrderLine {
+            LocalOrderLine(
+                id: id, tableNumber: 25, articleId: "b1", nameSnapshot: "Bier, Radler 0,5 l",
+                unitPriceCents: 440, qty: 1, createdAt: createdAt, deviceId: "anderes-gerät",
+                pendingLocal: false
+            )
+        }
+
+        let nacheinander = [foreign(spät, createdAt: now), foreign(früh, createdAt: now - 60)]
+        #expect(TableTotals.openLines(of: nacheinander).map(\.id) == [früh, spät])
+
+        // Gleichstand im Zeitstempel: die ID entscheidet, und zwar immer gleich.
+        let gleichzeitig = [foreign(spät, createdAt: now), foreign(früh, createdAt: now)]
+        #expect(TableTotals.openLines(of: gleichzeitig).map(\.id) == [früh, spät])
+        #expect(TableTotals.openLines(of: gleichzeitig.reversed()).map(\.id) == [früh, spät])
+    }
+
     @Test("Mengenänderung nimmt die Notiz in beide Richtungen mit")
     func changingQtyKeepsNote() throws {
         let env = try TestEnvironment()

@@ -555,7 +555,7 @@ Die Preisliste liegt als `preisliste.csv` im Hauptverzeichnis des Projekts
    ```
 
    Der zweite Befehl gibt aus, wie viele Artikel eingelesen wurden, z. B.
-   `32 Artikel importiert, catalogVersion=4.` Kommt keine solche Zeile,
+   `44 Artikel importiert, catalogVersion=4.` Kommt keine solche Zeile,
    wurde nichts geändert.
 
 4. **Auf den iPhones** die App einmal neu starten, falls die neuen Preise

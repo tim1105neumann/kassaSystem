@@ -66,6 +66,20 @@ final class LocalOrderLine {
     /// Sonderwunsch zur Position. Default nötig wie bei `tipCents`, sonst
     /// migriert SwiftData eine bestehende Datei nicht leichtgewichtig.
     var note: String? = nil
+    /// Platz in der Tischliste, in Millisekunden seit 1970. Rein lokal: das
+    /// Protokoll kennt das Feld nicht, Zeilen von einem anderen Gerät haben
+    /// deshalb `nil` und sortieren nach `createdAt`.
+    ///
+    /// Nötig, weil eine Mengenreduktion die Zeile storniert und den Rest neu
+    /// bucht — die Ersatzzeile erbt den Schlüssel und bleibt an ihrem Platz,
+    /// während ihr `createdAt` ehrlich der Zeitpunkt der Neubuchung bleibt. Den
+    /// braucht der Küchendrucker, um Nachzügler zu erkennen
+    /// (`PrintService/Sources/KuechenbonCore/BonPlanner.swift`).
+    ///
+    /// Default ebenfalls nötig, sonst migriert SwiftData nicht leichtgewichtig.
+    /// `apply(_:)` fasst das Feld nicht an: der Server schickt den Schlüssel
+    /// nicht zurück, er darf ihn aber auch nicht löschen.
+    var sortKey: Int? = nil
 
     init(
         id: UUID,
@@ -80,7 +94,8 @@ final class LocalOrderLine {
         settlementId: UUID? = nil,
         updatedSeq: Int = 0,
         pendingLocal: Bool = true,
-        note: String? = nil
+        note: String? = nil,
+        sortKey: Int? = nil
     ) {
         self.id = id
         self.tableNumber = tableNumber
@@ -95,6 +110,7 @@ final class LocalOrderLine {
         self.updatedSeq = updatedSeq
         self.pendingLocal = pendingLocal
         self.note = note
+        self.sortKey = sortKey
     }
 
     convenience init(dto: OrderLineDTO) {
@@ -132,6 +148,10 @@ final class LocalOrderLine {
 
     var unitPrice: Money { Money(cents: unitPriceCents) }
     var lineTotal: Money { Money(cents: unitPriceCents * qty) }
+    /// Sortierwert der Anzeige: eigener Schlüssel, sonst der Buchungszeitpunkt.
+    var orderKey: Int { sortKey ?? LocalOrderLine.orderKey(at: createdAt) }
+
+    static func orderKey(at date: Date) -> Int { Int(date.timeIntervalSince1970 * 1000) }
     /// Offen = weder storniert noch kassiert.
     var isOpen: Bool { voidedAt == nil && settlementId == nil }
 }

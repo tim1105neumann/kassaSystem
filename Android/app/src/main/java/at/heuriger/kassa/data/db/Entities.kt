@@ -80,8 +80,24 @@ data class OrderLineEntity(
      * bevor die Queue sie ueberhaupt abgesetzt hat.
      */
     @ColumnInfo(name = "pending_local") val pendingLocal: Boolean = true,
+    /**
+     * Platz in der Tischliste, in Epoch-Millisekunden. Rein lokal — der Vertrag
+     * kennt das Feld nicht, Zeilen von einem anderen Geraet haben deshalb
+     * `null` und werden nach [createdAt] einsortiert.
+     *
+     * Bewusst ohne `defaultValue`: eine Zeile, die dieses Geraet nie gebucht
+     * hat, *hat* keinen Schluessel, und `0` waere davon nicht zu unterscheiden.
+     *
+     * Ueberlebt den Merge, weil [applying] nur die Felder des DTO setzt: der
+     * Server schickt den Schluessel nicht zurueck, er darf ihn aber auch nicht
+     * loeschen.
+     */
+    @ColumnInfo(name = "sort_key") val sortKey: Long? = null,
 ) {
     val isOpen: Boolean get() = voidedAt == null && settlementId == null
+
+    /** Sortierwert der Anzeige: eigener Schluessel, sonst der Buchungszeitpunkt. */
+    val orderKey: Long get() = sortKey ?: createdAt.toEpochMilli()
 
     /** Spiegel von `LocalOrderLine.apply(_:)`: der Serverstand gewinnt vollstaendig. */
     fun applying(dto: OrderLineDto): OrderLineEntity = copy(

@@ -21,6 +21,7 @@ class CalculationTest {
         createdAt: Instant = now,
         voidedAt: Instant? = null,
         settlementId: UUID? = null,
+        sortKey: Long? = null,
     ) = OrderLine(
         id = id,
         tableNumber = 12,
@@ -33,6 +34,7 @@ class CalculationTest {
         voidedAt = voidedAt,
         settlementId = settlementId,
         updatedSeq = 1,
+        sortKey = sortKey,
     )
 
     // MARK: - Rueckgeld
@@ -216,6 +218,69 @@ class CalculationTest {
         assertEquals(2, TableTotals.openLines(lines).size)
         assertEquals("Kaesekrainer", TableTotals.openLines(lines).first().nameSnapshot)
         assertEquals(frueh, TableTotals.openedAt(lines))
+    }
+
+    @Test
+    fun `eine Buchung behaelt die Reihenfolge des Warenkorbs`() {
+        // Alle drei in derselben Sekunde gebucht: ohne eigenen Schluessel
+        // entschiede die Datenbank, und die entscheidet jedes Mal neu.
+        val lines = listOf(
+            line(UUID.randomUUID(), "Most", 380, 1, sortKey = 1_700_000_000_002),
+            line(UUID.randomUUID(), "Kaesekrainer", 620, 3, sortKey = 1_700_000_000_000),
+            line(UUID.randomUUID(), "Schnitzel", 1_490, 2, sortKey = 1_700_000_000_001),
+        )
+
+        assertEquals(
+            listOf("Kaesekrainer", "Schnitzel", "Most"),
+            TableTotals.openLines(lines).map { it.nameSnapshot },
+        )
+    }
+
+    @Test
+    fun `die neu gebuchte Restmenge bleibt an ihrem Platz`() {
+        // Was `changeQty` beim Verringern hinterlaesst: die alte Zeile
+        // storniert, der Rest frisch gebucht — also mit neuem `createdAt`, aber
+        // mit dem geerbten Platz.
+        val rest = line(
+            UUID.randomUUID(), "Kaesekrainer", 620, 2,
+            createdAt = now.plusSeconds(600), sortKey = 1_700_000_000_000,
+        )
+        val lines = listOf(
+            line(UUID.randomUUID(), "Kaesekrainer", 620, 3,
+                voidedAt = now.plusSeconds(600), sortKey = 1_700_000_000_000),
+            rest,
+            line(UUID.randomUUID(), "Schnitzel", 1_490, 2, sortKey = 1_700_000_000_001),
+            line(UUID.randomUUID(), "Most", 380, 1, sortKey = 1_700_000_000_002),
+        )
+
+        assertEquals(
+            listOf("Kaesekrainer", "Schnitzel", "Most"),
+            TableTotals.openLines(lines).map { it.nameSnapshot },
+        )
+    }
+
+    @Test
+    fun `Zeilen ohne eigenen Schluessel gehen nach dem Buchungszeitpunkt`() {
+        // Zeilen von einem anderen Geraet: der Vertrag traegt keinen
+        // Sortierschluessel, sie muessen sich trotzdem eindeutig einreihen.
+        val frueh = UUID.fromString("00000000-0000-0000-0000-000000000001")
+        val spaet = UUID.fromString("00000000-0000-0000-0000-000000000002")
+        val fremd = listOf(
+            line(spaet, "Most", 380, 1),
+            line(frueh, "Kaesekrainer", 620, 1, createdAt = now.minusSeconds(60)),
+        )
+        assertEquals(listOf(frueh, spaet), TableTotals.openLines(fremd).map { it.id })
+
+        // Gleichstand im Zeitstempel: die ID entscheidet, und zwar immer gleich.
+        val gleichzeitig = listOf(
+            line(spaet, "Most", 380, 1),
+            line(frueh, "Kaesekrainer", 620, 1),
+        )
+        assertEquals(listOf(frueh, spaet), TableTotals.openLines(gleichzeitig).map { it.id })
+        assertEquals(
+            TableTotals.openLines(gleichzeitig).map { it.id },
+            TableTotals.openLines(gleichzeitig.reversed()).map { it.id },
+        )
     }
 
     @Test

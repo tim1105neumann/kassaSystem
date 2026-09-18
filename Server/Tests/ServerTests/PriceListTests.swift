@@ -5,20 +5,26 @@ import Testing
 
 @Suite("Preisliste")
 struct PriceListTests {
-    @Test("Die echte CSV ergibt 32 Artikel")
+    @Test("Die echte CSV ergibt 44 Artikel")
     func parsesRealFile() throws {
         let rows = try PriceList.parse(String(contentsOf: priceListURL, encoding: .utf8))
-        #expect(rows.count == 32)
+        #expect(rows.count == 44)
         #expect(rows.first == PriceList.Row(category: "Speisen", name: "Berner Würstel mit Gebäck", priceCents: 620))
         #expect(rows.last == PriceList.Row(category: "Getraenke", name: "Leitungswasser", priceCents: 0))
     }
 
+    /// Die echte Preisliste kommt seit der Aufteilung der Sammelposten ohne
+    /// Komma im Artikelnamen aus — der Parser muss eines trotzdem können, sonst
+    /// zerlegt die nächste Preisänderung einen Namen in zwei Felder.
     @Test("Kommas innerhalb eines Feldes bleiben im Namen")
     func keepsCommasInsideQuotedFields() throws {
-        let rows = try PriceList.parse(String(contentsOf: priceListURL, encoding: .utf8))
-        let limo = try #require(rows.first { $0.name.hasPrefix("Limo") })
-        #expect(limo.name == "Limo (Cola, Frucade, Almdudler, Eistee, Sprite)")
-        #expect(limo.priceCents == 310)
+        let rows = try PriceList.parse("""
+            "Kategorie","Artikel","Preis"
+            "Getraenke","Limo (Cola, Frucade, Almdudler, Eistee, Sprite)","3.10"
+            """)
+        #expect(rows.count == 1)
+        #expect(rows[0].name == "Limo (Cola, Frucade, Almdudler, Eistee, Sprite)")
+        #expect(rows[0].priceCents == 310)
     }
 
     @Test("Preise werden ohne Fließkomma exakt in Cent umgerechnet")
@@ -40,14 +46,14 @@ struct PriceListTests {
         #expect(rows[0].priceCents == 150)
     }
 
-    @Test("Import legt 32 Artikel an und zählt die Katalogversion hoch")
+    @Test("Import legt 44 Artikel an und zählt die Katalogversion hoch")
     func firstImport() async throws {
         try await withKassaApp { harness in
             let before = try await ServerState.current(on: harness.db).catalogVersion
             try await harness.importPriceList()
 
             let articles = try await Article.query(on: harness.db).all()
-            #expect(articles.count == 32)
+            #expect(articles.count == 44)
             #expect(articles.filter { !$0.active }.isEmpty)
             #expect(try await ServerState.current(on: harness.db).catalogVersion == before + 1)
         }
@@ -66,7 +72,7 @@ struct PriceListTests {
             try await PriceList.import(rows: try PriceList.parse(changed), on: harness.db)
 
             let after = try await Article.query(on: harness.db).all()
-            #expect(after.count == 32)
+            #expect(after.count == 44)
             #expect(Set(try after.map { try $0.requireID() }) == idsBefore)
             #expect(try #require(after.first { $0.name == "Berner Würstel mit Gebäck" }).priceCents == 710)
             #expect(try await ServerState.current(on: harness.db).catalogVersion == versionBefore + 1)
@@ -82,13 +88,13 @@ struct PriceListTests {
             try await PriceList.import(rows: try PriceList.parse(reduced), on: harness.db)
 
             let all = try await Article.query(on: harness.db).all()
-            #expect(all.count == 32) // nichts gelöscht
+            #expect(all.count == 44) // nichts gelöscht
             let water = try #require(all.first { $0.name == "Leitungswasser" })
             #expect(water.active == false)
 
             let token = try await harness.login().token
             let visible = try await harness.articles(token: token)
-            #expect(visible.count == 31)
+            #expect(visible.count == 43)
             #expect(!visible.contains { $0.name == "Leitungswasser" })
         }
     }

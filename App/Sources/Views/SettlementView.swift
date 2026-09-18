@@ -34,16 +34,21 @@ struct SettlementView: View {
         )
     }
 
+    /// `@Query` sortiert nur nach `createdAt`; die vollständige Reihenfolge
+    /// steht in `TableTotals.openLines`. Die Aufstellung auf dem Bon muss
+    /// dieselbe Reihenfolge haben wie die Liste auf dem Bildschirm.
+    private var openLines: [LocalOrderLine] { TableTotals.openLines(of: lines) }
+
     private var amount: Money {
-        mode == .all ? TableTotals.openTotal(of: lines) : selection.subtotal(over: lines)
+        mode == .all ? TableTotals.openTotal(of: openLines) : selection.subtotal(over: openLines)
     }
 
     /// Kassieren und Aufstellung müssen dasselbe zeigen — beide leiten die
     /// Positionen hier ab.
     private var selections: [SettlementLineSelection] {
         mode == .all
-            ? lines.map { SettlementLineSelection(lineId: $0.id, qty: $0.qty) }
-            : selection.requestLines(over: lines)
+            ? openLines.map { SettlementLineSelection(lineId: $0.id, qty: $0.qty) }
+            : selection.requestLines(over: openLines)
     }
 
     private var paid: Money? { Money(parsing: paidText) }
@@ -89,7 +94,7 @@ struct SettlementView: View {
             .padding(.bottom, 8)
 
             List {
-                ForEach(lines) { line in
+                ForEach(openLines) { line in
                     if mode == .all {
                         LabeledContent {
                             Text(line.lineTotal.formatted)

@@ -82,6 +82,22 @@ final class LocalStore {
 
     // MARK: - Optimistisches Schreiben
 
+    /// Zuletzt vergebener Platz in einer Tischliste. Nur im Speicher: nach einem
+    /// Neustart liegt die aktuelle Uhrzeit ohnehin über allem, was vorher
+    /// vergeben wurde.
+    private var lastSortKey = 0
+
+    /// Nächster freier Platz, streng monoton.
+    ///
+    /// Der Buchungszeitpunkt allein reicht nicht: eine Buchung aus dem Warenkorb
+    /// legt alle Zeilen mit demselben `now` an. Das `+ 1` hält die Reihenfolge
+    /// des Warenkorbs fest, statt sie der Datenbank zu überlassen.
+    private func nextSortKey(at date: Date) -> Int {
+        let key = max(LocalOrderLine.orderKey(at: date), lastSortKey + 1)
+        lastSortKey = key
+        return key
+    }
+
     /// Bucht Artikel auf einen Tisch: sofort lokal sichtbar, gleichzeitig in die
     /// Queue. Die UI wartet nie auf das Netz.
     func addLines(tableNumber: Int, items: [BookingItem]) {
@@ -102,7 +118,8 @@ final class LocalStore {
                 qty: item.qty,
                 createdAt: now,
                 deviceId: settings.deviceId,
-                note: item.note
+                note: item.note,
+                sortKey: nextSortKey(at: now)
             ))
             newLines.append(NewOrderLine(
                 id: id,
@@ -147,7 +164,9 @@ final class LocalStore {
                 qty: newQty - line.qty,
                 createdAt: now,
                 deviceId: settings.deviceId,
-                note: line.note
+                note: line.note,
+                // Eine Nachbestellung ist eine eigene Position und gehört ans Ende.
+                sortKey: nextSortKey(at: now)
             ))
             enqueue(.addLines, payload: CreateOrderLinesRequest(lines: [
                 NewOrderLine(
@@ -169,6 +188,9 @@ final class LocalStore {
         let name = line.nameSnapshot
         let unitPrice = line.unitPriceCents
         let note = line.note
+        // Die Restmenge ist dieselbe Position wie vorher, nur kleiner: sie erbt
+        // den Platz in der Liste und springt nicht ans Ende.
+        let sortKey = line.orderKey
 
         line.voidedAt = .now
         enqueue(.voidLine, payload: VoidLineCommand(lineId: line.id))
@@ -185,7 +207,8 @@ final class LocalStore {
                 qty: remaining,
                 createdAt: now,
                 deviceId: settings.deviceId,
-                note: note
+                note: note,
+                sortKey: sortKey
             ))
             enqueue(.addLines, payload: CreateOrderLinesRequest(lines: [
                 NewOrderLine(

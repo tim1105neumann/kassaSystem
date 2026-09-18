@@ -87,6 +87,36 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun `Migration 2 nach 3 haengt den Sortierschluessel an und behaelt die Buchung`() {
+        helper.createDatabase(NAME, 2).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO order_lines
+                    (id, table_number, article_id, name_snapshot, unit_price_cents, qty,
+                     created_at, device_id, voided_at, settlement_id, updated_seq, note, pending_local)
+                VALUES ('$LINE_ID', 7, 'a1', 'Kaesekrainer', 620, 2,
+                        1700000000, 'geraet-a', NULL, NULL, 0, 'ohne Senf', 1)
+                """.trimIndent()
+            )
+        }
+
+        val migrated = helper.runMigrationsAndValidate(
+            NAME, 3, true, KassaDatabase.MIGRATION_1_2, KassaDatabase.MIGRATION_2_3,
+        )
+
+        migrated.query("SELECT qty, note, pending_local, sort_key FROM order_lines WHERE id = '$LINE_ID'")
+            .use { cursor ->
+                assertTrue("Die Buchung aus Version 2 ist verschwunden", cursor.moveToFirst())
+                assertEquals(2, cursor.getInt(0))
+                assertEquals("ohne Senf", cursor.getString(1))
+                assertEquals(1, cursor.getInt(2))
+                // Eine Bestandszeile hatte nie einen Platz in der Liste; sie
+                // sortiert weiter nach `created_at`.
+                assertTrue("Eine Zeile aus Version 2 hat keinen Sortierschluessel", cursor.isNull(3))
+            }
+    }
+
     private companion object {
         const val NAME = "migration-test.db"
         const val LINE_ID = "11111111-1111-1111-1111-111111111111"
