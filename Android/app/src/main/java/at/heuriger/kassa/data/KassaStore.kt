@@ -158,6 +158,7 @@ class KassaStore(
                     createdAt = now,
                     deviceId = deviceId,
                     note = item.note,
+                    sortKey = nextSortKeyLocked(now),
                 )
             )
             NewOrderLine(
@@ -202,7 +203,8 @@ class KassaStore(
         if (!line.isOpen || newQty == line.qty) return@write
 
         if (newQty > line.qty) {
-            bookLocked(line, qty = newQty - line.qty)
+            // Eine Nachbestellung ist eine eigene Position und gehoert ans Ende.
+            bookLocked(line, qty = newQty - line.qty, sortKey = nextSortKeyLocked(KassaClock.now()))
             return@write
         }
 
@@ -213,7 +215,9 @@ class KassaStore(
         )
 
         val remaining = maxOf(newQty, 0)
-        if (remaining > 0) bookLocked(line, qty = remaining)
+        // Die Restmenge ist dieselbe Position wie vorher, nur kleiner: sie erbt
+        // den Platz in der Liste und springt nicht ans Ende.
+        if (remaining > 0) bookLocked(line, qty = remaining, sortKey = line.orderKey)
     }
 
     /**
@@ -390,11 +394,32 @@ class KassaStore(
     // MARK: - Helfer (Lock wird vorausgesetzt)
 
     /**
+     * Zuletzt vergebener Platz in einer Tischliste. Nur im Speicher: nach einem
+     * Neustart liegt die aktuelle Uhrzeit ohnehin ueber allem, was vorher
+     * vergeben wurde.
+     */
+    private var lastSortKey = 0L
+
+    /**
+     * Naechster freier Platz, streng monoton.
+     *
+     * Der Buchungszeitpunkt allein reicht nicht: `KassaClock` kuerzt auf
+     * Sekunden, eine Buchung aus dem Warenkorb legt also alle Zeilen mit
+     * demselben Wert an. Das `+ 1` haelt die Reihenfolge des Warenkorbs fest,
+     * statt sie der Datenbank zu ueberlassen.
+     */
+    private fun nextSortKeyLocked(at: Instant): Long {
+        val key = maxOf(at.toEpochMilli(), lastSortKey + 1)
+        lastSortKey = key
+        return key
+    }
+
+    /**
      * Neu buchen auf Basis einer bestehenden Zeile. Die Notiz reist mit: ohne
      * das verliert schon ein Tipp auf Minus den Sonderwunsch still — und genau
      * dieser Pfad erzeugt den Stornobon in der Kueche.
      */
-    private suspend fun bookLocked(source: OrderLineEntity, qty: Int) {
+    private suspend fun bookLocked(source: OrderLineEntity, qty: Int, sortKey: Long) {
         val now = KassaClock.now()
         val id = UUID.randomUUID()
         lineDao.upsert(
@@ -408,6 +433,7 @@ class KassaStore(
                 createdAt = now,
                 deviceId = settings.deviceId,
                 note = source.note,
+                sortKey = sortKey,
             )
         )
         enqueueLocked(

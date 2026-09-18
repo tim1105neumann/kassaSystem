@@ -27,8 +27,16 @@ enum TableTotals {
         lines.reduce(Money.zero) { $1.isOpen ? $0 + $1.lineTotal : $0 }
     }
 
+    /// Die Reihenfolge ist vollständig bestimmt: nach `orderKey`, bei
+    /// Gleichstand nach `id`. Ein blosses `sorted { $0.createdAt < $1.createdAt }`
+    /// reichte nicht — eine Buchung aus dem Warenkorb legt alle Zeilen mit
+    /// demselben Zeitstempel an, die Reihenfolge wäre dann die der Datenbank.
     static func openLines(of lines: [LocalOrderLine]) -> [LocalOrderLine] {
-        lines.filter(\.isOpen).sorted { $0.createdAt < $1.createdAt }
+        lines.filter(\.isOpen).sorted {
+            $0.orderKey == $1.orderKey
+                ? $0.id.uuidString < $1.id.uuidString
+                : $0.orderKey < $1.orderKey
+        }
     }
 
     /// Ältester offener Zeitstempel eines Tisches — daraus wird „seit 42 min“.

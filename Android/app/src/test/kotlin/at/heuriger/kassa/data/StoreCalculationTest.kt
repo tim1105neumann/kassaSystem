@@ -1,6 +1,7 @@
 package at.heuriger.kassa.data
 
 import at.heuriger.kassa.data.StoreEnvironment.Companion.line
+import at.heuriger.kassa.domain.TableTotals
 import at.heuriger.kassa.wire.Money
 import at.heuriger.kassa.wire.SettlementLineSelection
 import at.heuriger.kassa.wire.SyncResponse
@@ -78,6 +79,49 @@ class StoreCalculationTest {
         // Buchung + Storno + Restbuchung
         assertEquals(3, env.store.openPendingCount())
         assertEquals("die alte Zeile ist storniert", 2, env.store.lines(20).size)
+    }
+
+    @Test
+    fun `die Restmenge bleibt an der Stelle der alten Zeile`() = runBlocking {
+        env.seedCatalog()
+        env.store.addLines(
+            23,
+            listOf(
+                BookingItem(env.article("a1"), 3),
+                BookingItem(env.article("b1"), 1),
+            ),
+        ).join()
+
+        val krainer = TableTotals.openLines(env.store.lines(23)).first()
+        env.store.changeQty(krainer.id, newQty = 2).join()
+
+        val offen = TableTotals.openLines(env.store.lines(23))
+        assertEquals(
+            "die Restmenge ist ans Listenende gesprungen",
+            listOf("Kaesekrainer", "Bier, Radler 0,5 l"),
+            offen.map { it.nameSnapshot },
+        )
+        assertEquals(2, offen.first().qty)
+    }
+
+    @Test
+    fun `eine Nachbestellung reiht sich hinten ein`() = runBlocking {
+        env.seedCatalog()
+        env.store.addLines(
+            24,
+            listOf(
+                BookingItem(env.article("a1"), 1),
+                BookingItem(env.article("b1"), 1),
+            ),
+        ).join()
+
+        val krainer = TableTotals.openLines(env.store.lines(24)).first()
+        env.store.changeQty(krainer.id, newQty = 2).join()
+
+        assertEquals(
+            listOf("Kaesekrainer", "Bier, Radler 0,5 l", "Kaesekrainer"),
+            TableTotals.openLines(env.store.lines(24)).map { it.nameSnapshot },
+        )
     }
 
     @Test

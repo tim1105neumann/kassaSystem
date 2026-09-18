@@ -20,6 +20,10 @@ struct TableDetailView: View {
         )
     }
 
+    /// `@Query` sortiert nur nach `createdAt`; die vollständige Reihenfolge
+    /// steht in `TableTotals.openLines` — dieselbe Stelle wie auf Android.
+    private var openLines: [LocalOrderLine] { TableTotals.openLines(of: lines) }
+
     private var total: Money { TableTotals.openTotal(of: lines) }
 
     var body: some View {
@@ -33,7 +37,7 @@ struct TableDetailView: View {
                 .frame(maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(lines) { line in
+                    ForEach(openLines) { line in
                         OrderLineRow(line: line) { newQty in
                             store.changeQty(of: line, to: newQty)
                         }

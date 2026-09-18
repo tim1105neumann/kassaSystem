@@ -20,6 +20,7 @@ fun OrderLineEntity.toDomain(): OrderLine = OrderLine(
     updatedSeq = updatedSeq,
     note = note,
     pendingLocal = pendingLocal,
+    sortKey = sortKey,
 )
 
 /**

@@ -32,8 +32,22 @@ data class OrderLine(
     val note: String? = null,
     /** Noch nicht vom Server bestaetigt — liegt in der Offline-Queue. */
     val pendingLocal: Boolean = false,
+    /**
+     * Platz in der Tischliste, in Epoch-Millisekunden. Rein lokal: der Vertrag
+     * kennt das Feld nicht, Zeilen von einem anderen Geraet haben deshalb `null`.
+     *
+     * Noetig, weil eine Mengenreduktion die Zeile storniert und den Rest neu
+     * bucht — die Ersatzzeile erbt den Schluessel und bleibt damit an ihrem
+     * Platz, waehrend ihr `createdAt` ehrlich der Zeitpunkt der Neubuchung
+     * bleibt. Den braucht der Kuechendrucker, um Nachzuegler zu erkennen
+     * (`PrintService/Sources/KuechenbonCore/BonPlanner.swift`).
+     */
+    val sortKey: Long? = null,
 ) {
     val lineTotal: Money get() = Money(unitPriceCents * qty)
+
+    /** Sortierwert der Anzeige: eigener Schluessel, sonst der Buchungszeitpunkt. */
+    val orderKey: Long get() = sortKey ?: createdAt.toEpochMilli()
 
     /** Offen = weder storniert noch kassiert. */
     val isOpen: Boolean get() = voidedAt == null && settlementId == null
