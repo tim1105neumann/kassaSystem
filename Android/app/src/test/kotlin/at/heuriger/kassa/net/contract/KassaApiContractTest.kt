@@ -174,7 +174,7 @@ class KassaApiContractTest {
     fun `articles liefert den importierten Katalog`(): Unit = runBlocking {
         val loaded = api.articles()
 
-        assertEquals(32, loaded.size)
+        assertEquals(44, loaded.size)
         assertTrue("Alle gelieferten Artikel muessen aktiv sein", loaded.all { it.active })
         // Nicht ">0": "Leitungswasser" kostet im Katalog bewusst 0.
         assertTrue("Preise duerfen nicht negativ sein", loaded.all { it.priceCents >= 0 })

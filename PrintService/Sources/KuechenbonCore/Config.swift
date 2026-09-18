@@ -37,7 +37,7 @@ public struct BonConfig: Codable, Sendable, Equatable {
     /// `maxOverviewAgeMinutes` und kürzer als `maxBonAgeMinutes`: dazwischen
     /// liegt genau der Abend, an dem die Zahlen noch jemanden interessieren.
     public var maxDayReportAgeMinutes: Int
-    /// Der Katalog hat 32 Zeilen. Die volle Liste macht aus dem Zettel eine
+    /// Der Katalog hat 44 Zeilen. Die volle Liste macht aus dem Zettel eine
     /// Preisliste, in der die Spitzenreiter untergehen — und die der Wirt
     /// abreißen muss, statt sie in die Hand zu nehmen.
     public var dayReportTopArticles: Int

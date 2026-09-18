@@ -19,7 +19,7 @@ func dayReport(request: Request) async throws -> DayReportDTO {
         .filter(\.$settlementId ~~ settlementIDs.map { $0 as UUID? })
         .all()
 
-    // Der Katalog hat 32 Zeilen — ein Join lohnt sich dafür nicht.
+    // Der Katalog hat 44 Zeilen — ein Join lohnt sich dafür nicht.
     let articles = try await Article.query(on: db).all()
     var categoryOf: [String: String] = [:]
     for article in articles { categoryOf[try article.requireID()] = article.category }
